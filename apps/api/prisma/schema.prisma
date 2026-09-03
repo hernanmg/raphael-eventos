@@ -1,0 +1,282 @@
+// Esquema de datos de Raphael Eventos — Fase 1.
+// Borrador acordado con el usuario (ver docs/ y el historial de decisiones en memoria).
+// IMPORTANTE: todavía no se generó ninguna migración a partir de este schema.
+// Multi-tenant de esquema compartido: tenant_id está presente en TODAS las tablas
+// (incluidas las hijas) para que las políticas de Row-Level Security de Postgres
+// puedan filtrar por columna propia, sin depender de joins.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Plan {
+  BASICA
+  PRO
+}
+
+enum Role {
+  ADMIN
+  VENDEDOR
+  CLIENTE
+}
+
+enum EventType {
+  QUINCE
+  EGRESO
+  BODA
+  EMPRESARIAL
+}
+
+enum EventStatus {
+  ACTIVO
+  FINALIZADO
+  CANCELADO
+}
+
+enum CardType {
+  ADULTO
+  ADOLESCENTE
+  MENOR
+  BRINDIS
+}
+
+enum AccountRole {
+  TITULAR
+  PARTICIPANTE
+}
+
+enum TokenPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan      Plan     @default(BASICA)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users          User[]
+  events         Event[]
+  ipcIndexValues IpcIndexValue[]
+
+  @@map("tenants")
+}
+
+/// Cuenta de una persona. Staff (admin/vendedor) y clientes conviven en la misma
+/// tabla, diferenciados por `role` — así lo pidió el usuario explícitamente.
+model User {
+  id              String    @id @default(cuid())
+  tenantId        String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id])
+  email           String
+  passwordHash    String
+  role            Role      @default(CLIENTE)
+  fullName        String
+  phone           String?
+  emailVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  eventAccounts        EventAccount[]
+  claimedBeneficiaries EventBeneficiary[] @relation("BeneficiaryAccount")
+  createdEvents        Event[]            @relation("EventCreatedBy")
+  recordedPayments     Payment[]          @relation("PaymentRecordedBy")
+  triggeredIpcFetches  IpcIndexValue[]    @relation("IpcTriggeredBy")
+  authTokens           AuthToken[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
+
+model Event {
+  id           String      @id @default(cuid())
+  tenantId     String
+  tenant       Tenant      @relation(fields: [tenantId], references: [id])
+  type         EventType
+  name         String
+  eventDate    DateTime?
+  status       EventStatus @default(ACTIVO)
+  /// Contacto del contratante cargado por el admin al crear el evento (familia
+  /// en 15/boda/empresarial, colegio/comisión en egreso). Se usa para el
+  /// matching automático al registrarse/loguearse con ese mismo email.
+  titularName  String?
+  titularEmail String?
+  /// Mínimo de invitados contratado. Hoy solo se muestra el valor cargado por
+  /// el admin, sin lógica de avance automático (eso depende del rol invitado
+  /// + RSVP, que es Fase 3).
+  minGuests    Int?
+  createdById  String?
+  createdBy    User?       @relation("EventCreatedBy", fields: [createdById], references: [id])
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  beneficiaries EventBeneficiary[]
+  accounts      EventAccount[]
+
+  @@index([tenantId])
+  @@index([tenantId, titularEmail])
+  @@map("events")
+}
+
+/// "A quién se factura" dentro de un evento. Para QUINCE/BODA/EMPRESARIAL se crea
+/// una única fila junto con el evento (representa al evento entero). Para EGRESO
+/// se crea una fila por alumno (import de Excel) — cada una con su propio
+/// desglose de tarjetas y sus propios pagos, por privacidad entre familias.
+model EventBeneficiary {
+  id       String @id @default(cuid())
+  tenantId String
+  eventId  String
+  event    Event  @relation(fields: [eventId], references: [id])
+
+  /// Nombre del alumno en EGRESO; null en el resto (el beneficiario es el evento).
+  label String?
+
+  /// Email de contacto para matching automático de cuentas. Solo se usa para
+  /// egreso (email por alumno/familia); en el resto el matching se resuelve
+  /// vía Event.titularEmail.
+  contactEmail String?
+  contactPhone String?
+
+  accountId String?
+  account   User?   @relation("BeneficiaryAccount", fields: [accountId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cards         EventCard[]
+  payments      Payment[]
+  eventAccounts EventAccount[]
+
+  @@index([tenantId])
+  @@index([tenantId, contactEmail])
+  @@map("event_beneficiaries")
+}
+
+/// Línea de desglose de tarjeta (adulto/adolescente/menor/brindis) para un
+/// beneficiario. El valor "hoy" se calcula en runtime como
+/// baseValue × (indexValue vigente / indexValue en basePeriod).
+model EventCard {
+  id            String           @id @default(cuid())
+  tenantId      String
+  beneficiaryId String
+  beneficiary   EventBeneficiary @relation(fields: [beneficiaryId], references: [id])
+  cardType      CardType
+  quantity      Int
+  baseValue     Decimal          @db.Decimal(12, 2)
+  /// Primer día del mes (período IPC) en que se fijó baseValue.
+  basePeriod    DateTime
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@unique([beneficiaryId, cardType])
+  @@index([tenantId])
+  @@map("event_cards")
+}
+
+/// Índice IPC obtenido automáticamente desde la API de datos.gob.ar (serie
+/// 145.3_INGNACUAL_DICI_M_38), no cargado a mano. Cada fila registra el índice
+/// acumulado resultante de encadenar la variación de los últimos 2 valores
+/// publicados sobre el índice anterior, junto con los valores fuente usados
+/// (auditoría). No se recalcula retroactivamente.
+///
+/// Estas filas las escribe un job programado (cron) — la pantalla de saldo del
+/// cliente SIEMPRE lee el último valor ya guardado acá, nunca llama a
+/// datos.gob.ar en el momento de servir la pantalla (ver docs/costos/Arquitectura
+/// y costos.md).
+model IpcIndexValue {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+
+  /// Mes del dato más reciente tomado en este fetch.
+  period              DateTime
+  /// Índice acumulado resultante (encadenado sobre el registro anterior).
+  indexValue          Decimal  @db.Decimal(14, 6)
+  sourcePreviousValue Decimal  @db.Decimal(14, 6)
+  sourceLatestValue   Decimal  @db.Decimal(14, 6)
+
+  /// Null = lo escribió el job automático. Seteado = un admin disparó un
+  /// refresh manual desde el panel.
+  triggeredById String?
+  triggeredBy   User?    @relation("IpcTriggeredBy", fields: [triggeredById], references: [id])
+  fetchedAt     DateTime @default(now())
+
+  @@unique([tenantId, period])
+  @@index([tenantId])
+  @@map("ipc_index_values")
+}
+
+/// Abono registrado a mano por el admin (no hay pasarela de pago ni
+/// facturación por sistema — decisión de fondo del cliente, no técnica).
+model Payment {
+  id            String           @id @default(cuid())
+  tenantId      String
+  beneficiaryId String
+  beneficiary   EventBeneficiary @relation(fields: [beneficiaryId], references: [id])
+  amount        Decimal          @db.Decimal(12, 2)
+  paymentDate   DateTime
+  note          String?
+  recordedById  String?
+  recordedBy    User?            @relation("PaymentRecordedBy", fields: [recordedById], references: [id])
+  createdAt     DateTime         @default(now())
+
+  @@index([tenantId])
+  @@map("payments")
+}
+
+/// Vínculo muchos-a-muchos cuenta↔evento con rol.
+model EventAccount {
+  id       String @id @default(cuid())
+  tenantId String
+  eventId  String
+  event    Event  @relation(fields: [eventId], references: [id])
+  userId   String
+  user     User   @relation(fields: [userId], references: [id])
+
+  /// Null = titular de EGRESO (colegio/comisión): ve el agregado del evento
+  /// (mínimo de invitados, totales), no el detalle de pago de cada familia.
+  /// Seteado = participante de EGRESO (su alumno) o titular de
+  /// QUINCE/BODA/EMPRESARIAL (el único beneficiary del evento).
+  beneficiaryId String?
+  beneficiary   EventBeneficiary? @relation(fields: [beneficiaryId], references: [id])
+  role          AccountRole
+
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, userId])
+  @@index([tenantId])
+  @@map("event_accounts")
+}
+
+/// Token de un solo uso para verificación de email y recupero de contraseña
+/// (mismo mecanismo para ambos casos, diferenciado por `purpose`).
+model AuthToken {
+  id        String       @id @default(cuid())
+  tenantId  String
+  userId    String
+  user      User         @relation(fields: [userId], references: [id])
+  purpose   TokenPurpose
+  tokenHash String       @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime     @default(now())
+
+  @@index([tenantId])
+  @@index([userId, purpose])
+  @@map("auth_tokens")
+}
+
+// NOTA sobre la tabla "session" (express-session / connect-pg-simple): su DDL
+// está versionado a mano en la migración SQL (no en este schema, porque
+// connect-pg-simple espera su propia estructura fija), para poder otorgarle
+// permisos a app_user sin darle privilegios de CREATE TABLE en runtime. Ver el
+// bloque de RLS/roles al final de la primera migración.

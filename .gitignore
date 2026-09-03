@@ -1,0 +1,28 @@
+node_modules/
+dist/
+build/
+coverage/
+
+# env
+.env
+.env.local
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+
+# editor / os
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# vite / pwa
+apps/web/dist/
+apps/web/dev-dist/
+apps/web/.vite/
+
+# prisma
+apps/api/prisma/generated/

@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+coverage
+apps/web/dev-dist
+apps/api/prisma/generated
+package-lock.json
+
+# entregables/documentos del cliente, no tocar formato
+docs/

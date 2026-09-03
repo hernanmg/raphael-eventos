@@ -1,0 +1,47 @@
+@import 'tailwindcss';
+
+/* Paleta y tipografía tomadas de docs/landing/landing.html — mismo sistema
+   visual que la landing y los mockups (blanco/crema/negro, serif en títulos). */
+@theme {
+  --color-ink: #141414;
+  --color-paper: #ffffff;
+  --color-cream: #f7f5f0;
+  --color-cream-2: #efebe2;
+  --color-line: #e3ddd0;
+  --color-muted: #6c6a63;
+  --color-gold: #a3813f;
+  --color-gold-soft: #e8dcc2;
+
+  --font-serif: 'Playfair Display', serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-cream text-ink font-sans;
+}
+
+/* Cue de scroll del hero de la landing (docs/landing/landing.html). */
+@keyframes scrollLine {
+  0% {
+    top: -100%;
+  }
+  60% {
+    top: 100%;
+  }
+  100% {
+    top: 100%;
+  }
+}
+
+/* Estilo compartido de inputs/select/textarea del formulario de cotización,
+   mismo look que el resto de los forms de la app (ver FormField.tsx). */
+.field-input {
+  @apply w-full rounded-lg border border-line bg-white px-3.5 py-3 text-sm text-ink outline-none transition;
+}
+.field-input:focus {
+  @apply border-ink;
+}

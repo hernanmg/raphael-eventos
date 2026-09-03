@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Raphael Eventos — Mockups v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#111111;
+    --paper:#ffffff;
+    --line:#e4e2dd;
+    --muted:#7a7a7a;
+    --soft:#f6f5f2;
+    --green:#2e7d46;
+    --amber:#b8892b;
+    --red:#b23b3b;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:#efece6;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);
+    padding:40px;
+  }
+  .page-header{
+    max-width:1400px;
+    margin:0 auto 32px;
+  }
+  .page-header .brand{
+    font-family:"Playfair Display",serif;
+    font-weight:700;
+    font-size:15px;
+    letter-spacing:3px;
+    color:var(--ink);
+  }
+  .page-header h1{
+    font-size:26px;
+    margin:6px 0 4px;
+  }
+  .page-header p{
+    color:var(--muted);
+    font-size:14px;
+    max-width:760px;
+    line-height:1.5;
+    margin:0;
+  }
+  .board{
+    max-width:1400px;
+    margin:0 auto;
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(268px, 1fr));
+    gap:28px;
+    align-items:start;
+  }
+  .frame-wrap{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .frame-label{
+    font-size:11px;
+    letter-spacing:1.5px;
+    text-transform:uppercase;
+    color:var(--muted);
+    font-weight:600;
+  }
+  .frame{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:22px;
+    box-shadow:0 10px 30px rgba(20,20,20,0.06);
+    overflow:hidden;
+    min-height:560px;
+    display:flex;
+    flex-direction:column;
+  }
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:16px 16px 10px;
+    border-bottom:1px solid var(--line);
+  }
+  .topbar .title{
+    font-size:13px;
+    font-weight:700;
+    letter-spacing:1px;
+    text-transform:uppercase;
+  }
+  .icon-btn{
+    width:22px;height:22px;
+    display:flex;align-items:center;justify-content:center;
+    color:var(--ink);
+  }
+  .content{
+    padding:16px;
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+  }
+  .r-logo{
+    width:34px;height:34px;border-radius:50%;
+    background:var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    color:#fff;font-family:"Playfair Display",serif;font-weight:700;font-size:15px;
+    margin:0 auto;
+  }
+  .h-name{
+    font-size:19px;font-weight:700;margin:2px 0 0;
+  }
+  .h-sub{
+    font-size:12px;color:var(--muted);margin:0;
+  }
+  .stat-row{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:8px;
+  }
+  .stat{
+    background:var(--soft);
+    border-radius:12px;
+    padding:10px 8px;
+    text-align:center;
+  }
+  .stat .n{font-size:18px;font-weight:700;}
+  .stat .l{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+  .card{
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:12px;
+  }
+  .card + .card{margin-top:2px;}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .name{font-size:13.5px;font-weight:700;}
+  .meta{font-size:11px;color:var(--muted);margin-top:2px;}
+  .badge{
+    font-size:9.5px;
+    font-weight:700;
+    padding:3px 8px;
+    border-radius:20px;
+    text-transform:uppercase;
+    letter-spacing:.3px;
+    white-space:nowrap;
+  }
+  .badge.new{background:#eaeaea;color:#333;}
+  .badge.contact{background:#e6eef5;color:#2a5a8a;}
+  .badge.won{background:#e5f2e8;color:var(--green);}
+  .badge.lost{background:#f5e7e7;color:var(--red);}
+  .badge.linked{background:#e5f2e8;color:var(--green);}
+  .badge.invited{background:#eee;color:#555;}
+  .badge.pending{background:#faf1de;color:var(--amber);}
+  .btn{
+    background:var(--ink);
+    color:#fff;
+    border:none;
+    border-radius:10px;
+    padding:11px;
+    font-size:12.5px;
+    font-weight:700;
+    text-align:center;
+    cursor:default;
+  }
+  .btn.ghost{
+    background:#fff;
+    color:var(--ink);
+    border:1px solid var(--ink);
+  }
+  .btn.sm{padding:7px 10px;font-size:11px;border-radius:8px;}
+  .divider{
+    font-size:10.5px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.6px;
+    font-weight:700;
+    margin-top:4px;
+  }
+  .progress{
+    height:7px;background:var(--soft);border-radius:6px;overflow:hidden;
+  }
+  .progress > div{height:100%;background:var(--ink);}
+  .pill-toggle{
+    display:flex;background:var(--soft);border-radius:10px;padding:3px;
+  }
+  .pill-toggle div{
+    flex:1;text-align:center;font-size:11.5px;font-weight:700;padding:7px;border-radius:8px;color:var(--muted);
+  }
+  .pill-toggle div.active{background:var(--ink);color:#fff;}
+  .field{
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:9px 11px;
+    font-size:12px;
+    color:var(--muted);
+    display:flex;align-items:center;gap:8px;
+  }
+  .upload{
+    border:1.5px dashed var(--line);
+    border-radius:12px;
+    padding:18px 10px;
+    text-align:center;
+    font-size:11.5px;
+    color:var(--muted);
+  }
+  .upload b{color:var(--ink);}
+  table.mini{width:100%;border-collapse:collapse;font-size:10.5px;}
+  table.mini th{
+    text-align:left;color:var(--muted);font-weight:600;font-size:9px;text-transform:uppercase;
+    padding-bottom:5px;border-bottom:1px solid var(--line);
+  }
+  table.mini td{padding:6px 4px;border-bottom:1px solid #f0efeb;}
+  .cal{
+    display:grid;grid-template-columns:repeat(7,1fr);gap:4px;
+  }
+  .cal .d{
+    aspect-ratio:1;border-radius:7px;display:flex;align-items:center;justify-content:center;
+    font-size:10px;background:var(--soft);color:var(--muted);
+  }
+  .cal .d.busy{background:#f5e7e7;color:var(--red);font-weight:700;}
+  .cal .d.free{background:#e5f2e8;color:var(--green);font-weight:700;}
+  .cal .d.dim{opacity:.35;}
+  .legend{display:flex;gap:12px;font-size:10px;color:var(--muted);}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px;}
+  .note{
+    font-size:11px;color:var(--muted);line-height:1.5;background:var(--soft);
+    border-radius:10px;padding:10px 12px;
+  }
+  .note b{color:var(--ink);}
+  .role-tag{
+    display:inline-block;font-size:9.5px;font-weight:700;color:var(--muted);
+    background:var(--soft);padding:2px 8px;border-radius:20px;margin-top:4px;
+  }
+  .chip-row{display:flex;gap:8px;}
+  .chip-row .btn{flex:1;}
+  .avatar-row{display:flex;align-items:center;gap:8px;}
+  .av{width:28px;height:28px;border-radius:50%;background:var(--soft);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--muted);}
+  svg{display:block;}
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="brand">RAPHAEL EVENTOS</div>
+  <h1>Mockups v2 — roles y vinculación de eventos</h1>
+  <p>Pantallas nuevas sobre la misma línea visual del mockup original: panel para el rol Vendedor, alta de evento y carga de alumnos desde el admin, y el flujo de invitación/vinculación de cuenta para egresos (padre/alumno ↔ evento).</p>
+</div>
+
+<div class="board">
+
+  <!-- 1. VENDEDOR DASHBOARD -->
+  <div class="frame-wrap">
+    <div class="frame-label">Vendedor · Dashboard (rol nuevo)</div>
+    <div class="frame">
+      <div class="topbar">
+        <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="title">Panel Vendedor</div>
+        <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="6" r="1.6" fill="#111"/><circle cx="12" cy="12" r="1.6" fill="#111"/><circle cx="12" cy="18" r="1.6" fill="#111"/></svg></div>
+      </div>
+      <div class="content">
+        <div>
+          <div class="h-sub">Hola, Fede 👋</div>
+          <div class="h-name" style="font-size:16px;">Consultas y reservas</div>
+        </div>
+        <div class="stat-row">
+          <div class="stat"><div class="n">6</div><div class="l">Nuevas</div></div>
+          <div class="stat"><div class="n">4</div><div class="l">En<br>seguim.</div></div>
+          <div class="stat"><div class="n">3</div><div class="l">Con<br>seña</div></div>
+        </div>
+        <div class="divider">Consultas recientes</div>
+        <div class="card">
+          <div class="row"><span class="name">Familia Gómez</span><span class="badge new">Nuevo</span></div>
+          <div class="meta">15 años · consulta 18/08 · quiere fecha nov. 2027</div>
+        </div>
+        <div class="card">
+          <div class="row"><span class="name">Instituto San Martín</span><span class="badge contact">Contactado</span></div>
+          <div class="meta">Egreso · 2028 · a la espera de comisión</div>
+        </div>
+        <div class="card">
+          <div class="row"><span class="name">Familia Ríos</span><span class="badge won">Con seña</span></div>
+          <div class="meta">15 años · 12/03/2027 · seña $200.000</div>
+        </div>
+        <div style="flex:1"></div>
+        <div class="chip-row">
+          <div class="btn ghost sm">Calendario</div>
+          <div class="btn sm">+ Nueva consulta</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. VENDEDOR CALENDARIO -->
+  <div class="frame-wrap">
+    <div class="frame-label">Vendedor · Disponibilidad del salón</div>
+    <div class="frame">
+      <div class="topbar">
+        <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="title">Noviembre 2026</div>
+        <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 5L16 12L9 19" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      </div>
+      <div class="content">
+        <div class="legend">
+          <span><span class="dot" style="background:#e5f2e8;border:1px solid var(--green)"></span>Libre</span>
+          <span><span class="dot" style="background:#f5e7e7;border:1px solid var(--red)"></span>Ocupado</span>
+        </div>
+        <div class="cal">
+          <div class="d dim">D</div><div class="d dim">L</div><div class="d dim">M</div><div class="d dim">M</div><div class="d dim">J</div><div class="d dim">V</div><div class="d dim">S</div>
+          <div class="d dim">1</div><div class="d free">2</div><div class="d free">3</div><div class="d busy">4</div><div class="d free">5</div><div class="d free">6</div><div class="d free">7</div>
+          <div class="d free">8</div><div class="d free">9</div><div class="d busy">10</div><div class="d free">11</div><div class="d free">12</div><div class="d free">13</div><div class="d free">14</div>
+          <div class="d free">15</div><div class="d free">16</div><div class="d free">17</div><div class="d free">18</div><div class="d free">19</div><div class="d busy">20</div><div class="d free">21</div>
+          <div class="d free">22</div><div class="d free">23</div><div class="d free">24</div><div class="d free">25</div><div class="d free">26</div><div class="d free">27</div><div class="d busy">28</div>
+        </div>
+        <div class="divider">Próximas fechas ocupadas</div>
+        <div class="card"><div class="row"><span class="name">4 Nov</span><span class="meta">Sofía Pérez · 15 años</span></div></div>
+        <div class="card"><div class="row"><span class="name">10 Nov</span><span class="meta">Valentina Gómez · 15 años</span></div></div>
+        <div class="card"><div class="row"><span class="name">20 Nov</span><span class="meta">Colegio del Sol · Egreso</span></div></div>
+        <div class="note">Fede y Cami ven el mismo calendario. Cuando el admin confirma una seña, la fecha pasa a <b>ocupada</b> automáticamente.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. ADMIN NUEVO EVENTO -->
+  <div class="frame-wrap">
+    <div class="frame-label">Admin · Alta de evento</div>
+    <div class="frame">
+      <div class="topbar">
+        <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="title">Nuevo evento</div>
+        <div class="icon-btn"></div>
+      </div>
+      <div class="content">
+        <div class="pill-toggle">
+          <div>15 años</div>
+          <div class="active">Egreso</div>
+        </div>
+        <div class="field">Colegio: Instituto San Martín</div>
+        <div class="field">Contacto comisión: María — 351 555 0102</div>
+        <div class="field">Fecha: 27/11/2027 · 21:00 hs</div>
+        <div class="field">Mínimo de invitados: 250</div>
+        <div class="divider">Alumnos</div>
+        <div class="upload">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="margin:0 auto 6px"><path d="M12 16V4M12 4L7 9M12 4L17 9" stroke="#7a7a7a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16V18C4 19.1 4.9 20 6 20H18C19.1 20 20 19.1 20 18V16" stroke="#7a7a7a" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <div><b>Cargar Excel</b> de alumnos</div>
+          <div>nombre, tarjeta adulto/menor/brindis</div>
+        </div>
+        <div class="note">Al cargar el Excel, el sistema arma la ficha de cada alumno y genera un link de invitación individual — no hace falta tipear nada dentro de la app.</div>
+        <div style="flex:1"></div>
+        <div class="btn">Crear evento</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. ADMIN ALUMNOS CON ESTADO -->
+  <div class="frame-wrap">
+    <div class="frame-label">Admin · Egreso → estado de invitaciones</div>
+    <div class="frame">
+      <div class="topbar">
+        <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="title">Colegio del Sol</div>
+        <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="6" r="1.6" fill="#111"/><circle cx="12" cy="12" r="1.6" fill="#111"/><circle cx="12" cy="18" r="1.6" fill="#111"/></svg></div>
+      </div>
+      <div class="content">
+        <div class="h-sub">20 de Noviembre 2026 · 300 mín. invitados</div>
+        <div class="divider">Alumnos (274/300)</div>
+        <div class="card"><div class="row"><span class="name">Juan Pérez</span><span class="badge linked">Vinculado</span></div><div class="meta">Padre: Carlos Pérez</div></div>
+        <div class="card"><div class="row"><span class="name">Martina López</span><span class="badge invited">Invitado</span></div><div class="meta">Link enviado 12/08</div></div>
+        <div class="card"><div class="row"><span class="name">Sofía González</span><span class="badge pending">Sin invitar</span></div><div class="meta">Falta teléfono de contacto</div></div>
+        <div class="card"><div class="row"><span class="name">Tomás Ruiz</span><span class="badge linked">Vinculado</span></div><div class="meta">Padre: Ana Ruiz</div></div>
+        <div class="card"><div class="row"><span class="name">Lucía Fernández</span><span class="badge invited">Invitado</span></div><div class="meta">Link enviado 12/08</div></div>
+        <div style="flex:1"></div>
+        <div class="chip-row">
+          <div class="btn ghost sm">+ Alumno</div>
+          <div class="btn sm">Invitar pendientes</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. CLIENTE VINCULAR EVENTO -->
+  <div class="frame-wrap">
+    <div class="frame-label">Cliente · Vincular evento (desde link de invitación)</div>
+    <div class="frame">
+      <div class="topbar" style="border-bottom:none;justify-content:center;padding-top:22px;">
+        <div class="r-logo">R.</div>
+      </div>
+      <div class="content" style="text-align:center;align-items:center;">
+        <div style="font-size:16px;font-weight:700;margin-top:6px;">Te invitaron a un evento</div>
+        <div class="card" style="width:100%;text-align:left;">
+          <div class="name">Colegio del Sol · Egreso</div>
+          <div class="meta">20 de Noviembre 2026 · 21:30 hs</div>
+          <div class="meta">Multiespacio Casona Raphael</div>
+          <div class="meta" style="margin-top:6px;"><b>Alumno:</b> Juan Pérez</div>
+        </div>
+        <div class="note" style="text-align:left;width:100%;">Este link vincula el evento de <b>Juan Pérez</b> a tu cuenta. Si ya tenés otros eventos con nosotros (por ejemplo, un 15 años de otra hija), vas a verlos todos juntos en tu inicio.</div>
+        <div style="flex:1"></div>
+        <div class="btn" style="width:100%;">Crear cuenta y vincular</div>
+        <div class="btn ghost" style="width:100%;">Ya tengo cuenta, iniciar sesión</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. CLIENTE HOME CON ROLES -->
+  <div class="frame-wrap">
+    <div class="frame-label">Cliente · Inicio con etiqueta de rol por evento</div>
+    <div class="frame">
+      <div class="topbar" style="justify-content:space-between;">
+        <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 6H20M4 12H20M4 18H20" stroke="#111" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+        <div class="r-logo" style="width:26px;height:26px;font-size:11px;">R.</div>
+        <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.4" stroke="#111" stroke-width="1.6"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" stroke="#111" stroke-width="1.6"/></svg></div>
+      </div>
+      <div class="content">
+        <div>
+          <div class="h-sub">Hola, Carlos 👋</div>
+          <div style="font-size:14px;font-weight:600;">Estos son tus eventos</div>
+        </div>
+        <div class="card">
+          <div class="row"><span class="name">SOFÍA PÉREZ</span><span class="badge new" style="background:#eee">15 años</span></div>
+          <div class="meta">15 de Octubre 2026</div>
+          <div class="role-tag">Titular del evento</div>
+        </div>
+        <div class="card">
+          <div class="row"><span class="name">COLEGIO DEL SOL</span><span class="badge new" style="background:#eee">Egreso</span></div>
+          <div class="meta">20 de Noviembre 2026</div>
+          <div class="role-tag">Padre de Juan Pérez</div>
+        </div>
+        <div class="note">Un mismo usuario puede figurar en varios eventos, del mismo mes o no, con distinto rol en cada uno. No hace falta una cuenta por evento.</div>
+        <div style="flex:1"></div>
+        <div class="chip-row">
+          <div class="btn ghost sm">WhatsApp</div>
+          <div class="btn ghost sm">Instagram</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. CLIENTE EGRESO VISTA FAMILIA -->
+  <div class="frame-wrap">
+    <div class="frame-label">Cliente · Egreso, vista acotada a su alumno</div>
+    <div class="frame">
+      <div class="topbar">
+        <div class="icon-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 5L8 12L15 19" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="title">Juan Pérez</div>
+        <div class="icon-btn"></div>
+      </div>
+      <div class="content">
+        <div class="divider">Tarjetas de Juan</div>
+        <div class="card">
+          <div class="row"><span class="meta">Adultos</span><span class="name" style="font-size:12.5px">8 pagas · $224.000</span></div>
+          <div class="row" style="margin-top:6px;"><span class="meta">Menores</span><span class="name" style="font-size:12.5px">3 pagas · $54.000</span></div>
+          <div class="row" style="margin-top:6px;"><span class="meta">Brindis</span><span class="name" style="font-size:12.5px">2 pagos · $16.000</span></div>
+        </div>
+        <div class="divider">Evento compartido</div>
+        <div class="card">
+          <div class="row"><span class="meta">Mínimo de invitados</span><span class="name" style="font-size:12.5px">274 / 300</span></div>
+          <div class="progress"><div style="width:91%"></div></div>
+        </div>
+        <div class="note">Por privacidad solo ves el detalle de pagos de <b>tu alumno</b>. El avance del mínimo de invitados es el único dato que se comparte con el resto de las familias.</div>
+        <div style="flex:1"></div>
+        <div class="chip-row">
+          <div class="btn ghost sm">WhatsApp</div>
+          <div class="btn ghost sm">Instagram</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
