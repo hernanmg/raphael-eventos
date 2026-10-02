@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { hashPassword } from '../src/lib/password';
+import { computeAggregateFinancials } from '../src/lib/financials';
 
 // Corre como el owner (DATABASE_URL), no como app_user: sembrar el tenant y
 // el usuario demo es una tarea de operación/infra, no una request de la app.
@@ -37,7 +38,53 @@ const SEED_IDS = {
   beneficiaryEgreso1: 'seed-beneficiary-egreso-demo-1',
   beneficiaryEgreso2: 'seed-beneficiary-egreso-demo-2',
   accountEgreso: 'seed-account-egreso-demo',
+  employeePao: 'seed-employee-pao',
+  employeeAdri: 'seed-employee-adri',
+  assignmentPaoQuince: 'seed-assignment-pao-quince',
 } as const;
+
+// Rubros reales tomados del Excel de costeo de Fede (docs/raphael_eventos_costos.xlsx,
+// hojas PRECIOS. y COSTOS) — ver CLAUDE.md "Fase 2 — costeo y personal".
+const SUPPLY_CATEGORIES = [
+  'Verdulería',
+  'Pollo',
+  'Carnicería',
+  'Pescadería',
+  'Macro',
+  'Panadería',
+  'Fiambre',
+  'Golosinas',
+  'Alcohol',
+  'Descartables/Limpieza',
+  'Repostería',
+  'Sushi',
+  'Lavandería',
+];
+const SERVICE_COST_CATEGORIES = [
+  'Mozos',
+  'Barra',
+  'Bacha',
+  'DJ',
+  'Fotógrafo',
+  'Seguridad',
+  'Flecha',
+  'Baño',
+];
+const FIXED_COST_CATEGORIES: { name: string; monthlyAmount: number; guestScaled?: boolean }[] = [
+  { name: 'Luz', monthlyAmount: 80000 },
+  { name: 'Gas', monthlyAmount: 40000 },
+  { name: 'Alquiler', monthlyAmount: 1200000, guestScaled: true },
+  { name: 'Piletero', monthlyAmount: 60000 },
+  { name: 'Jardinero', monthlyAmount: 60000 },
+  { name: 'Limpieza', monthlyAmount: 90000 },
+  { name: 'Horas semanales', monthlyAmount: 150000 },
+  { name: 'Comisiones', monthlyAmount: 50000 },
+  { name: 'Lavandería', monthlyAmount: 40000 },
+  { name: 'Canva', monthlyAmount: 15000 },
+  { name: 'Meta', monthlyAmount: 60000 },
+  { name: 'Contador', monthlyAmount: 70000 },
+  { name: 'Seguro', monthlyAmount: 50000 },
+];
 
 const IPC_BASE_PERIOD = new Date('2026-06-01T00:00:00.000Z');
 const IPC_LATEST_PERIOD = new Date('2026-09-01T00:00:00.000Z');
@@ -45,10 +92,13 @@ const IPC_LATEST_PERIOD = new Date('2026-09-01T00:00:00.000Z');
 async function main() {
   const slug = process.env.TENANT_SLUG ?? 'raphael-eventos';
 
+  // Plan PRO: Fede (dueño real) es el caso de uso del módulo de costeo — sin
+  // esto, las pantallas nuevas de costeo quedan gateadas y no se pueden
+  // probar contra el seed.
   const tenant = await prisma.tenant.upsert({
     where: { slug },
-    update: {},
-    create: { slug, name: 'Raphael Eventos', plan: 'BASICA' },
+    update: { plan: 'PRO' },
+    create: { slug, name: 'Raphael Eventos', plan: 'PRO' },
   });
 
   const passwordHash = await hashPassword(DEMO_USER.password);
@@ -105,6 +155,64 @@ async function main() {
       sourcePreviousValue: 108.9,
       sourceLatestValue: 112.4,
       fetchedAt: IPC_LATEST_PERIOD,
+    },
+  });
+
+  // Catálogos de costeo (Plan Pro) — mismos rubros reales del Excel de Fede.
+  for (const [index, name] of SUPPLY_CATEGORIES.entries()) {
+    await prisma.supplyCategory.upsert({
+      where: { tenantId_name: { tenantId: tenant.id, name } },
+      update: {},
+      create: { tenantId: tenant.id, name, sortOrder: index },
+    });
+  }
+  for (const name of SERVICE_COST_CATEGORIES) {
+    await prisma.serviceCostCategory.upsert({
+      where: { tenantId_name: { tenantId: tenant.id, name } },
+      update: {},
+      create: { tenantId: tenant.id, name },
+    });
+  }
+  for (const category of FIXED_COST_CATEGORIES) {
+    await prisma.fixedCostCategory.upsert({
+      where: { tenantId_name: { tenantId: tenant.id, name: category.name } },
+      update: {},
+      create: {
+        tenantId: tenant.id,
+        name: category.name,
+        monthlyAmount: category.monthlyAmount,
+        guestScaled: category.guestScaled ?? false,
+      },
+    });
+  }
+
+  // Personal (Plan Básica/Pro) — Pao y Adri son el caso real relatado por
+  // Fede (ver CLAUDE.md): Pao cobra comisión, Adri tiene fijo + variable por
+  // evento.
+  const employeePao = await prisma.employee.upsert({
+    where: { id: SEED_IDS.employeePao },
+    update: {},
+    create: {
+      id: SEED_IDS.employeePao,
+      tenantId: tenant.id,
+      fullName: 'Pao',
+      contractType: 'MONOTRIBUTO',
+      fixedMonthlyAmount: 0,
+      variableType: 'COMISION_PCT',
+      variableValue: 5,
+    },
+  });
+  await prisma.employee.upsert({
+    where: { id: SEED_IDS.employeeAdri },
+    update: {},
+    create: {
+      id: SEED_IDS.employeeAdri,
+      tenantId: tenant.id,
+      fullName: 'Adri',
+      contractType: 'EN_BLANCO',
+      fixedMonthlyAmount: 150000,
+      variableType: 'MONTO_POR_EVENTO',
+      variableValue: 20000,
     },
   });
 
@@ -176,6 +284,47 @@ async function main() {
       userId: demoUser.id,
       beneficiaryId: beneficiaryQuince.id,
       role: 'TITULAR',
+    },
+  });
+
+  // Asignación de personal (Pao) al evento demo — replica lo que hace
+  // staff.service.ts#assignStaff al asignar un empleado con comisión: genera
+  // sola la línea de EventServiceCost correspondiente.
+  await prisma.eventStaffAssignment.upsert({
+    where: { id: SEED_IDS.assignmentPaoQuince },
+    update: {},
+    create: {
+      id: SEED_IDS.assignmentPaoQuince,
+      tenantId: tenant.id,
+      eventId: eventQuince.id,
+      employeeId: employeePao.id,
+    },
+  });
+  const quinceCardsForFinancials = await prisma.eventCard.findMany({
+    where: { beneficiaryId: beneficiaryQuince.id },
+  });
+  const quincePaymentsForFinancials = await prisma.payment.findMany({
+    where: { beneficiaryId: beneficiaryQuince.id },
+  });
+  const ipcRowsForFinancials = await prisma.ipcIndexValue.findMany({
+    where: { tenantId: tenant.id },
+    orderBy: { period: 'asc' },
+  });
+  const { totalValue: quinceTotalValue } = computeAggregateFinancials(
+    [{ cards: quinceCardsForFinancials, payments: quincePaymentsForFinancials }],
+    ipcRowsForFinancials,
+  );
+  await prisma.eventServiceCost.upsert({
+    where: { id: 'seed-service-cost-pao-quince' },
+    update: {},
+    create: {
+      id: 'seed-service-cost-pao-quince',
+      tenantId: tenant.id,
+      eventId: eventQuince.id,
+      employeeId: employeePao.id,
+      autoGenerated: true,
+      amount: Number((quinceTotalValue * 0.05).toFixed(2)),
+      note: 'Pao',
     },
   });
 

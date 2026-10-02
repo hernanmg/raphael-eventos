@@ -4,6 +4,7 @@ import { LoginSchema, RegisterSchema } from '@raphael-eventos/shared';
 import {
   EmailAlreadyRegisteredError,
   InvalidCredentialsError,
+  getTenantPlan,
   getUserById,
   registerUser,
   toPublicUser,
@@ -85,7 +86,8 @@ authRouter.get('/me', requireAuth, async (req, res, next) => {
       res.status(401).json({ error: { message: 'No autenticado' } });
       return;
     }
-    res.json({ user: toPublicUser(user) });
+    const tenantPlan = await getTenantPlan(req.tenantId);
+    res.json({ user: toPublicUser(user), tenantPlan });
   } catch (err) {
     next(err);
   }

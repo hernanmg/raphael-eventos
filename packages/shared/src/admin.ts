@@ -7,8 +7,41 @@
 import { z } from 'zod';
 import { CardTypeSchema, EventTypeSchema } from './enums';
 import { optionalText } from './zodHelpers';
-import type { EventStatus, EventType } from './enums';
+import type { AccountRole, EventStatus, EventType } from './enums';
 import type { CardSummary, PaymentSummary } from './portal';
+
+const PaymentAllocationInputSchema = z.object({
+  cardType: CardTypeSchema,
+  quantity: z.coerce.number().int().min(0).max(9999),
+});
+
+/**
+ * `allocations` es opcional (ver CLAUDE.md "Fase 2 — asignación de pagos"):
+ * un pago rápido puede quedar sin desglosar por tipo de tarjeta — el
+ * desglose se usa cuando aporta (ej. una familia de egreso paga por
+ * unidades puntuales), no es obligatorio en cada carga.
+ */
+export const RecordPaymentSchema = z.object({
+  amount: z.coerce.number().positive('Tiene que ser mayor a 0'),
+  paymentDate: z.string().trim().min(1, 'Elegí la fecha'),
+  note: optionalText(z.string().trim().max(200)),
+  allocations: z
+    .array(PaymentAllocationInputSchema)
+    .default([])
+    .refine((rows) => rows.every((row) => row.quantity > 0), {
+      message: 'Las cantidades asignadas tienen que ser mayores a 0',
+    }),
+});
+export type RecordPaymentInput = z.infer<typeof RecordPaymentSchema>;
+
+export interface RecordPaymentResult {
+  payment: PaymentSummary;
+  /** true si este pago, sumado a los anteriores, supera
+   *  TenantCostConfig.advanceDepositCapPct del total del beneficiary — solo
+   *  informativo, decisión cerrada de no bloquear nada con esto (ver
+   *  CLAUDE.md "Fase 2 — costeo y personal"). */
+  advanceDepositWarning: boolean;
+}
 
 export const EventCardInputSchema = z.object({
   cardType: CardTypeSchema,
@@ -20,6 +53,7 @@ export type EventCardInput = z.infer<typeof EventCardInputSchema>;
 export const AlumnoInputSchema = z.object({
   label: z.string().trim().min(1, 'Ingresá el nombre del alumno').max(160),
   contactEmail: optionalText(z.string().trim().toLowerCase().email('Email inválido')),
+  contactPhone: optionalText(z.string().trim().min(6).max(30)),
 });
 export type AlumnoInput = z.infer<typeof AlumnoInputSchema>;
 
@@ -55,11 +89,19 @@ export const CreateEventSchema = z
   });
 export type CreateEventInput = z.infer<typeof CreateEventSchema>;
 
+/**
+ * Ambos valores son puntos porcentuales de variación intermensual del IPC
+ * (ej. 2.11 = +2.11% ese mes) — el mismo dato que devuelve la serie de
+ * datos.gob.ar (145.3_INGNACUAL_DICI_M_38, "Variación intermensual"), no
+ * niveles de índice. Se permiten negativos por si algún mes hay deflación.
+ * Solo `sourceLatestValue` participa del cálculo (ver admin.service.ts#addIpcEntry);
+ * `sourcePreviousValue` queda de referencia/auditoría.
+ */
 export const CreateIpcEntrySchema = z.object({
   /** Mes que representa el dato (primer día de mes, ej. "2026-09-01"). */
   period: z.string().trim().min(1, 'Elegí el período'),
-  sourcePreviousValue: z.coerce.number().positive('Tiene que ser mayor a 0'),
-  sourceLatestValue: z.coerce.number().positive('Tiene que ser mayor a 0'),
+  sourcePreviousValue: z.coerce.number().min(-50).max(100),
+  sourceLatestValue: z.coerce.number().min(-50).max(100),
 });
 export type CreateIpcEntryInput = z.infer<typeof CreateIpcEntrySchema>;
 
@@ -122,6 +164,76 @@ export interface AdminEventDetail {
   };
 }
 
+/** Fila parseada de la plantilla de importación de alumnos (egreso) — ver
+ *  apps/api/src/modules/admin/importAlumnos.ts. `error` viene seteado si la
+ *  fila no pasa las validaciones mínimas; el admin la revisa/corrige en el
+ *  form antes de mandar el alta real. */
+export interface ImportedAlumnoRow {
+  row: number;
+  label: string;
+  contactEmail: string;
+  contactPhone: string;
+  error: string | null;
+}
+
+export interface EventContractSummary {
+  fileName: string;
+  uploadedAt: string;
+}
+
+/** Vista imprimible del detalle de pagos de un beneficiary puntual, para
+ *  cuando un cliente pide el detalle y Cami/Fede se lo muestran/mandan a
+ *  mano (Ctrl+P) — ver CLAUDE.md "Fase 2 — reporte de pagos". */
+export interface BeneficiaryReport {
+  eventName: string;
+  eventType: EventType;
+  beneficiaryLabel: string | null;
+  cards: CardSummary[];
+  payments: PaymentSummary[];
+  totalValue: number;
+  totalPaid: number;
+  saldo: number;
+  percentPaid: number;
+  generatedAt: string;
+}
+
+/**
+ * Vista "cliente" del panel admin — un mismo cliente (User) puede tener 2+
+ * eventos (`EventAccount`), y hoy la única forma de revisar su estado era
+ * ir evento por evento. `/admin/clientes` junta todo en un solo lugar (ver
+ * CLAUDE.md "Fase 2 — vista de cliente").
+ */
+export interface ClientListItem {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  eventCount: number;
+}
+
+export interface ClientEventSummary {
+  eventAccountId: string;
+  eventId: string;
+  eventName: string;
+  eventType: EventType;
+  role: AccountRole;
+  /** "own": este vínculo tiene beneficiary propio, se puede ver el desglose
+   *  de tarjetas/pagos. "aggregate": titular de egreso, solo el total. */
+  scope: 'own' | 'aggregate';
+  totalValue: number;
+  totalPaid: number;
+  saldo: number;
+  percentPaid: number;
+}
+
+export interface ClientDetail {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  events: ClientEventSummary[];
+}
+
 export interface IpcHistoryEntry {
   id: string;
   period: string;
@@ -130,4 +242,13 @@ export interface IpcHistoryEntry {
   sourceLatestValue: number;
   fetchedAt: string;
   triggeredByName: string | null;
+}
+
+/** Ver CLAUDE.md "Fase 2 — IPC automático": pasado el día 14 del mes sin que
+ *  datos.gob.ar haya publicado el período esperado, `stale` queda true y el
+ *  panel admin muestra `message` en vez de dejar que el admin asuma que el
+ *  último valor guardado sigue vigente. Nunca afecta al portal cliente. */
+export interface IpcStalenessStatus {
+  stale: boolean;
+  message: string | null;
 }

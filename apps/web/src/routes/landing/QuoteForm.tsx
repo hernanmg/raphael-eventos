@@ -1,8 +1,15 @@
 import { useRef, type FormEvent } from 'react';
+import type { EventType } from '@raphael-eventos/shared';
 import { Reveal } from '../../components/Reveal';
+import { useSubmitLead } from '../../hooks/useCrm';
 
 const WHATSAPP_NUMBER = '5493513180810';
-const EVENT_TYPES = ['15 años', 'Egresados', 'Boda', 'Evento empresarial'];
+const EVENT_TYPES: { label: string; value: EventType }[] = [
+  { label: '15 años', value: 'QUINCE' },
+  { label: 'Egresados', value: 'EGRESO' },
+  { label: 'Boda', value: 'BODA' },
+  { label: 'Evento empresarial', value: 'EMPRESARIAL' },
+];
 
 export function QuoteForm() {
   const nombreRef = useRef<HTMLInputElement>(null);
@@ -10,19 +17,31 @@ export function QuoteForm() {
   const tipoRef = useRef<HTMLSelectElement>(null);
   const fechaRef = useRef<HTMLInputElement>(null);
   const mensajeRef = useRef<HTMLTextAreaElement>(null);
+  const submitLead = useSubmitLead();
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const nombre = nombreRef.current?.value ?? '';
     const telefono = telefonoRef.current?.value ?? '';
-    const tipo = tipoRef.current?.value ?? '';
-    const fecha = fechaRef.current?.value || 'a definir';
+    const tipoValue = (tipoRef.current?.value ?? 'QUINCE') as EventType;
+    const tipoLabel = EVENT_TYPES.find((t) => t.value === tipoValue)?.label ?? tipoValue;
+    const fecha = fechaRef.current?.value;
     const mensaje = mensajeRef.current?.value ?? '';
 
-    const texto = `Hola! Soy ${nombre} (${telefono}). Quiero cotizar un evento de *${tipo}*, fecha tentativa: ${fecha}. ${
-      mensaje ? 'Detalle: ' + mensaje : ''
-    }`;
+    // Alimenta el CRM además de abrir WhatsApp — si falla (ej. rate limit),
+    // no bloquea el flujo real: WhatsApp sigue siendo el canal que usan hoy.
+    submitLead.mutate({
+      fullName: nombre,
+      phone: telefono,
+      eventType: tipoValue,
+      interestedDate: fecha || undefined,
+      message: mensaje || undefined,
+    });
+
+    const texto = `Hola! Soy ${nombre} (${telefono}). Quiero cotizar un evento de *${tipoLabel}*, fecha tentativa: ${
+      fecha || 'a definir'
+    }. ${mensaje ? 'Detalle: ' + mensaje : ''}`;
     const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(texto)}`;
     window.open(url, '_blank');
   }
@@ -64,18 +83,14 @@ export function QuoteForm() {
               <Field label="Tipo de evento" htmlFor="tipo">
                 <select id="tipo" ref={tipoRef} className="field-input">
                   {EVENT_TYPES.map((type) => (
-                    <option key={type}>{type}</option>
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
                   ))}
                 </select>
               </Field>
               <Field label="Fecha tentativa" htmlFor="fecha">
-                <input
-                  id="fecha"
-                  ref={fechaRef}
-                  type="text"
-                  placeholder="Ej: noviembre 2027"
-                  className="field-input"
-                />
+                <input id="fecha" ref={fechaRef} type="date" className="field-input" />
               </Field>
               <Field label="Contanos un poco más" htmlFor="mensaje" full>
                 <textarea

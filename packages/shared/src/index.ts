@@ -12,6 +12,10 @@ export {
   CardTypeSchema,
   AccountRoleSchema,
   TokenPurposeSchema,
+  EmployeeContractTypeSchema,
+  EmployeeVariableTypeSchema,
+  LeadStatusSchema,
+  SupplyUnitSchema,
 } from './enums';
 export type {
   Plan,
@@ -21,6 +25,10 @@ export type {
   CardType,
   AccountRole,
   TokenPurpose,
+  EmployeeContractType,
+  EmployeeVariableType,
+  LeadStatus,
+  SupplyUnit,
 } from './enums';
 
 export { RegisterSchema, LoginSchema, PublicUserSchema } from './auth';
@@ -29,6 +37,7 @@ export type { RegisterInput, LoginInput, PublicUser } from './auth';
 export type {
   CardSummary,
   PaymentSummary,
+  PaymentAllocationSummary,
   EventAccessScope,
   EventSummary,
   EventDetail,
@@ -39,6 +48,7 @@ export {
   AlumnoInputSchema,
   CreateEventSchema,
   CreateIpcEntrySchema,
+  RecordPaymentSchema,
 } from './admin';
 export type {
   EventCardInput,
@@ -49,5 +59,69 @@ export type {
   DashboardSummary,
   AdminBeneficiaryDetail,
   AdminEventDetail,
+  BeneficiaryReport,
+  ClientDetail,
+  ClientEventSummary,
+  ClientListItem,
+  EventContractSummary,
+  ImportedAlumnoRow,
   IpcHistoryEntry,
+  IpcStalenessStatus,
+  RecordPaymentInput,
+  RecordPaymentResult,
 } from './admin';
+
+export {
+  TenantCostConfigInputSchema,
+  SupplyCategoryInputSchema,
+  ServiceCostCategoryInputSchema,
+  FixedCostCategoryInputSchema,
+  EventSupplyLineInputSchema,
+  EventServiceCostInputSchema,
+} from './costing';
+export type {
+  TenantCostConfigInput,
+  SupplyCategoryInput,
+  ServiceCostCategoryInput,
+  FixedCostCategoryInput,
+  EventSupplyLineInput,
+  EventServiceCostInput,
+  TenantCostConfigSummary,
+  SupplyCategorySummary,
+  ServiceCostCategorySummary,
+  FixedCostCategorySummary,
+  EventSupplyLineSummary,
+  EventServiceCostSummary,
+  EventCostingSummary,
+} from './costing';
+
+export { LeadIntakeSchema, UpdateLeadSchema } from './crm';
+export type { LeadIntakeInput, UpdateLeadInput, LeadSummary, CalendarEntry } from './crm';
+
+export { ReminderConfigInputSchema } from './reminders';
+export type {
+  ReminderConfigInput,
+  ReminderConfigSummary,
+  ReminderLogSummary,
+  ReminderSweepResult,
+} from './reminders';
+
+export {
+  EmployeeInputSchema,
+  EventStaffAssignmentInputSchema,
+  EmployeeTimeEntryInputSchema,
+  PayrollPeriodInputSchema,
+  CommissionAdvanceInputSchema,
+} from './staff';
+export type {
+  EmployeeInput,
+  EventStaffAssignmentInput,
+  EmployeeTimeEntryInput,
+  PayrollPeriodInput,
+  CommissionAdvanceInput,
+  EmployeeSummary,
+  EventStaffAssignmentSummary,
+  EmployeeTimeEntrySummary,
+  PayrollEntrySummary,
+  CommissionAdvanceSummary,
+} from './staff';

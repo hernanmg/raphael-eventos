@@ -1,9 +1,10 @@
+import { useRef, useState } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Link, useNavigate } from 'react-router-dom';
 import { CreateEventSchema, type CreateEventInput } from '@raphael-eventos/shared';
 import { useCreateEvent } from '../../hooks/useAdmin';
-import { ApiError } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import { FormField } from '../../components/FormField';
 import { CARD_TYPE_LABELS, EVENT_TYPE_LABELS } from '../../lib/format';
 
@@ -37,9 +38,51 @@ export default function CreateEventPage() {
     defaultValues: DEFAULT_VALUES,
   });
 
-  const { fields, append, remove } = useFieldArray({ control, name: 'alumnos' });
+  const { fields, append, remove, replace } = useFieldArray({ control, name: 'alumnos' });
   const type = watch('type');
   const isEgreso = type === 'EGRESO';
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importRowErrors, setImportRowErrors] = useState<{ row: number; error: string }[]>([]);
+
+  async function handleDownloadTemplate() {
+    const blob = await api.downloadAlumnosTemplate();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'plantilla-alumnos.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleImportFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setImporting(true);
+    setImportError(null);
+    setImportRowErrors([]);
+    try {
+      const { rows } = await api.importAlumnos(file);
+      replace(
+        rows.map((row) => ({
+          label: row.label,
+          contactEmail: row.contactEmail || undefined,
+          contactPhone: row.contactPhone || undefined,
+        })),
+      );
+      setImportRowErrors(
+        rows.filter((row) => row.error).map((row) => ({ row: row.row, error: row.error! })),
+      );
+    } catch (err) {
+      setImportError(err instanceof ApiError ? err.message : 'No pudimos leer el archivo');
+    } finally {
+      setImporting(false);
+    }
+  }
 
   const onSubmit = handleSubmit((values) => {
     mutation.mutate(values, {
@@ -161,6 +204,40 @@ export default function CreateEventPage() {
         {isEgreso && (
           <fieldset>
             <legend className="mb-2 text-sm font-medium text-ink">Alumnos</legend>
+
+            <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-line p-3 text-sm">
+              <button
+                type="button"
+                onClick={handleDownloadTemplate}
+                className="text-gold hover:underline"
+              >
+                Descargar plantilla
+              </button>
+              <span className="text-muted">·</span>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+                className="text-gold hover:underline disabled:opacity-60"
+              >
+                {importing ? 'Importando…' : 'Importar desde Excel'}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx"
+                onChange={handleImportFile}
+                className="hidden"
+              />
+              {importError && <span className="text-red-600">{importError}</span>}
+            </div>
+            {importRowErrors.length > 0 && (
+              <p className="mb-3 text-sm text-amber-700">
+                Revisá estas filas antes de guardar:{' '}
+                {importRowErrors.map((r) => `fila ${r.row} (${r.error})`).join(', ')}.
+              </p>
+            )}
+
             <div className="flex flex-col gap-3">
               {fields.map((field, index) => (
                 <div
@@ -182,6 +259,13 @@ export default function CreateEventPage() {
                       {...register(`alumnos.${index}.contactEmail`)}
                     />
                   </div>
+                  <div className="flex-1">
+                    <FormField
+                      label="Teléfono (opcional)"
+                      error={errors.alumnos?.[index]?.contactPhone?.message}
+                      {...register(`alumnos.${index}.contactPhone`)}
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={() => remove(index)}
@@ -199,7 +283,9 @@ export default function CreateEventPage() {
             )}
             <button
               type="button"
-              onClick={() => append({ label: '', contactEmail: undefined })}
+              onClick={() =>
+                append({ label: '', contactEmail: undefined, contactPhone: undefined })
+              }
               className="mt-3 rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
             >
               + Agregar alumno

@@ -1,4 +1,11 @@
-import type { AccountRole, CardType, EventType } from '@raphael-eventos/shared';
+import type {
+  AccountRole,
+  CardType,
+  EmployeeContractType,
+  EmployeeVariableType,
+  EventType,
+  LeadStatus,
+} from '@raphael-eventos/shared';
 
 const currencyFormatter = new Intl.NumberFormat('es-AR', {
   style: 'currency',
@@ -38,4 +45,24 @@ export const CARD_TYPE_LABELS: Record<CardType, string> = {
 export const ACCOUNT_ROLE_LABELS: Record<AccountRole, string> = {
   TITULAR: 'Titular',
   PARTICIPANTE: 'Participante',
+};
+
+export const CONTRACT_TYPE_LABELS: Record<EmployeeContractType, string> = {
+  EN_BLANCO: 'En blanco',
+  MONOTRIBUTO: 'Monotributo',
+  INFORMAL: 'Informal',
+};
+
+export const VARIABLE_TYPE_LABELS: Record<EmployeeVariableType, string> = {
+  NINGUNO: 'Sin variable',
+  MONTO_POR_EVENTO: 'Monto fijo por evento',
+  COMISION_PCT: 'Comisión %',
+};
+
+export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
+  NUEVO: 'Nuevo',
+  CONTACTADO: 'Contactado',
+  CON_SENA: 'Con seña',
+  GANADO: 'Ganado',
+  PERDIDO: 'Perdido',
 };

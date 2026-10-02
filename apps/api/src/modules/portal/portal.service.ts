@@ -1,6 +1,10 @@
 import type { EventDetail, EventSummary } from '@raphael-eventos/shared';
 import { withTenant } from '../../db/withTenant';
-import { computeAggregateFinancials, computeBeneficiaryFinancials } from '../../lib/financials';
+import {
+  computeAggregateFinancials,
+  computeBeneficiaryFinancials,
+  serializePayment,
+} from '../../lib/financials';
 
 export class EventNotAccessibleError extends Error {}
 
@@ -90,7 +94,10 @@ export async function getUserEventDetail(
     if (link.beneficiaryId) {
       const beneficiary = await tx.eventBeneficiary.findUniqueOrThrow({
         where: { id: link.beneficiaryId },
-        include: { cards: true, payments: { orderBy: { paymentDate: 'desc' } } },
+        include: {
+          cards: true,
+          payments: { include: { allocations: true }, orderBy: { paymentDate: 'desc' } },
+        },
       });
       const financials = computeBeneficiaryFinancials(beneficiary, ipcRows);
 
@@ -100,12 +107,7 @@ export async function getUserEventDetail(
         own: {
           label: beneficiary.label,
           ...financials,
-          payments: beneficiary.payments.map((payment) => ({
-            id: payment.id,
-            amount: Number(payment.amount),
-            paymentDate: payment.paymentDate.toISOString(),
-            note: payment.note,
-          })),
+          payments: beneficiary.payments.map(serializePayment),
         },
       };
     }

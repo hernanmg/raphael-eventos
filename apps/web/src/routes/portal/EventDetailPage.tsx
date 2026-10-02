@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom';
 import type { EventDetail } from '@raphael-eventos/shared';
 import { useEventDetail } from '../../hooks/useEvents';
+import { PortalContractLink } from './PortalContractLink';
 import {
   ACCOUNT_ROLE_LABELS,
   CARD_TYPE_LABELS,
@@ -39,6 +40,7 @@ export default function EventDetailPage() {
             </span>
           </div>
           <p className="mt-1 text-sm text-muted">{formatDate(data.event.eventDate)}</p>
+          <PortalContractLink eventId={data.event.eventId} />
 
           {data.event.scope === 'own' && data.event.own && <OwnEventDetail own={data.event.own} />}
 
@@ -112,6 +114,7 @@ function OwnEventDetail({ own }: { own: NonNullable<EventDetail['own']> }) {
             <tr>
               <th className="px-4 py-3">Tipo</th>
               <th className="px-4 py-3">Cantidad</th>
+              <th className="px-4 py-3">Pagas</th>
               <th className="px-4 py-3">Valor actual (c/u)</th>
               <th className="px-4 py-3">Subtotal</th>
             </tr>
@@ -121,13 +124,22 @@ function OwnEventDetail({ own }: { own: NonNullable<EventDetail['own']> }) {
               <tr key={card.id} className="border-t border-line">
                 <td className="px-4 py-3">{CARD_TYPE_LABELS[card.cardType]}</td>
                 <td className="px-4 py-3">{card.quantity}</td>
+                <td className="px-4 py-3">
+                  <span
+                    className={
+                      card.quantityPaid >= card.quantity ? 'text-emerald-700' : 'text-muted'
+                    }
+                  >
+                    {card.quantityPaid} / {card.quantity}
+                  </span>
+                </td>
                 <td className="px-4 py-3">{formatCurrency(card.unitValue)}</td>
                 <td className="px-4 py-3 font-medium">{formatCurrency(card.subtotal)}</td>
               </tr>
             ))}
             {own.cards.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-muted">
+                <td colSpan={5} className="px-4 py-6 text-center text-muted">
                   Todavía no hay tarjetas cargadas para este evento.
                 </td>
               </tr>

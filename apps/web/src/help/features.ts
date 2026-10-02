@@ -38,7 +38,7 @@ export const helpFeatures: HelpFeature[] = [
     id: 'saldo-y-tarjetas',
     title: 'Saldo y tarjetas de un evento',
     purpose:
-      'Entrando a un evento desde "Mis eventos" ves el desglose de tarjetas por tipo (adulto/adolescente/menor/brindis), el valor de cada una ya actualizado por IPC, tus pagos registrados y tu saldo pendiente. Si sos titular de un egreso, ves el total general del evento — el detalle de pago de cada familia queda privado.',
+      'Entrando a un evento desde "Mis eventos" ves el desglose de tarjetas por tipo (adulto/adolescente/menor/brindis), el valor de cada una ya actualizado por IPC, cuántas unidades de cada tipo ya están pagas (si el admin las asignó al cargar el pago), tus pagos registrados y tu saldo pendiente. Si sos titular de un egreso, ves el total general del evento — el detalle de pago de cada familia queda privado.',
     path: '/portal',
     keywords: [
       'saldo',
@@ -72,8 +72,104 @@ export const helpFeatures: HelpFeature[] = [
     id: 'admin-ipc',
     title: 'Estado del IPC',
     purpose:
-      'Solo para admin/vendedor. Historial de los períodos de IPC cargados y el índice vigente que usa el portal cliente para actualizar el valor de las tarjetas — con un formulario para cargar un período nuevo mientras no exista el fetch automático contra datos.gob.ar.',
+      'Solo para admin/vendedor. El valor se actualiza solo todos los meses contra datos.gob.ar. Historial de los períodos y el índice vigente que usa el portal cliente, con un formulario para cargar un período a mano si la actualización automática no llegó (aviso visible acá y en el dashboard).',
     path: '/admin/ipc',
     keywords: ['admin', 'ipc', 'indice', 'inflacion', 'datos.gob.ar'],
+  },
+  {
+    id: 'admin-costeo',
+    title: 'Configuración de costeo (Plan Pro)',
+    purpose:
+      'Solo para admin/vendedor en Plan Pro. Porcentajes de ganancia/rotura/IVA y umbrales de renegociación/tope de seña, más los catálogos de rubros de insumos, gastos de servicio y gastos fijos de salón que alimentan el costeo de cada evento.',
+    path: '/admin/costeo/config',
+    keywords: ['costeo', 'costos', 'ganancia', 'rotura', 'iva', 'insumos', 'gastos fijos', 'pro'],
+  },
+  {
+    id: 'admin-costeo-evento',
+    title: 'Costeo de un evento (Plan Pro)',
+    purpose:
+      'Solo para admin/vendedor en Plan Pro. Desde el detalle de un evento: carga de insumos y gastos de servicio, y el cálculo automático de costo neto, costo por 100 invitados y costo de tarjeta final.',
+    path: '/admin/eventos',
+    keywords: ['costeo', 'costo tarjeta', 'costo neto', 'insumos', 'servicios', 'pro'],
+  },
+  {
+    id: 'admin-personal',
+    title: 'Personal',
+    purpose:
+      'Solo para admin/vendedor. Alta de empleados con su tipo de contratación y estructura de compensación (fijo + variable), y asignación de personal a cada evento desde su detalle — si el empleado tiene componente variable, la línea de costo se genera sola.',
+    path: '/admin/personal',
+    keywords: ['personal', 'empleados', 'staff', 'asignacion', 'nomina'],
+  },
+  {
+    id: 'admin-liquidacion',
+    title: 'Liquidación de personal (Plan Pro)',
+    purpose:
+      'Solo para admin/vendedor en Plan Pro. Registro de horas trabajadas por empleado, comisiones adelantadas a cuenta, y liquidación por período (mes) que suma el fijo prorrateado más lo variable de los eventos trabajados.',
+    path: '/admin/personal',
+    keywords: ['liquidacion', 'horas', 'comisiones', 'sueldo', 'pro'],
+  },
+  {
+    id: 'admin-consultas',
+    title: 'Consultas (CRM)',
+    purpose:
+      'Solo para admin/vendedor. Lista de consultas que llegan del formulario de cotización de la landing (o cargadas a mano), con su estado (nuevo/contactado/con seña/ganado/perdido) y notas internas.',
+    path: '/admin/consultas',
+    keywords: ['crm', 'consultas', 'leads', 'cotizacion', 'ventas'],
+  },
+  {
+    id: 'admin-calendario',
+    title: 'Calendario de disponibilidad',
+    purpose:
+      'Solo para admin/vendedor. Vista mensual con los eventos ya confirmados y las consultas con fecha tentativa marcada, para no comprometer una fecha que ya tiene una consulta avanzada.',
+    path: '/admin/calendario',
+    keywords: ['calendario', 'disponibilidad', 'fechas', 'agenda'],
+  },
+  {
+    id: 'cotizar',
+    title: 'Cotizar un evento',
+    purpose:
+      'Formulario en la landing para pedir una cotización — abre WhatsApp con el mensaje ya armado y, además, queda cargado como consulta nueva en el CRM del salón.',
+    path: '/',
+    keywords: ['cotizar', 'consulta', 'presupuesto', 'landing'],
+  },
+  {
+    id: 'contratos',
+    title: 'Contrato digital',
+    purpose:
+      'El admin sube el PDF del contrato ya firmado desde el detalle del evento; el cliente lo puede ver/descargar desde su portal. Es un adjunto simple, no hay firma electrónica dentro de la plataforma.',
+    path: '/admin/eventos',
+    keywords: ['contrato', 'pdf', 'firma', 'adjunto'],
+  },
+  {
+    id: 'admin-recordatorios',
+    title: 'Recordatorios automáticos',
+    purpose:
+      'Solo para admin/vendedor. Configura la cadencia de recordatorios de saldo pendiente por WhatsApp y muestra el log de cada intento — mientras no haya WhatsApp Business API conectado, sirve como lista de a quién había que escribirle y qué.',
+    path: '/admin/recordatorios',
+    keywords: ['recordatorios', 'whatsapp', 'saldo pendiente', 'cobranza'],
+  },
+  {
+    id: 'admin-pagos',
+    title: 'Registrar un pago',
+    purpose:
+      'Solo para admin/vendedor. Todo se cobra en persona (efectivo/transferencia) — Cami o Fede registran el pago desde el detalle del evento, por tarjeta/alumno, con monto, fecha y nota. Opcionalmente pueden indicar qué tarjetas cubre (ej. "2 adultos y 1 menor") para que quede registrado cuántas unidades de cada tipo ya están pagas.',
+    path: '/admin/eventos',
+    keywords: ['pago', 'cobro', 'abono', 'seña', 'efectivo', 'transferencia', 'asignacion'],
+  },
+  {
+    id: 'admin-reporte-pagos',
+    title: 'Reporte de pagos para un cliente',
+    purpose:
+      'Solo para admin/vendedor. Vista imprimible (Ctrl+P) del detalle de tarjetas y pagos de un alumno/evento puntual, para cuando un cliente pide el detalle — el desglose por familia en un egreso queda privado en el portal, pero Cami/Fede lo pueden generar y compartir a mano.',
+    path: '/admin/eventos',
+    keywords: ['reporte', 'imprimir', 'pdf', 'detalle de pagos'],
+  },
+  {
+    id: 'admin-clientes',
+    title: 'Clientes',
+    purpose:
+      'Solo para admin/vendedor. Un mismo cliente puede tener más de un evento — esta vista junta todos sus eventos y el saldo de cada uno en un solo lugar, en vez de tener que ir evento por evento a buscarlo.',
+    path: '/admin/clientes',
+    keywords: ['cliente', 'clientes', 'cuenta', 'buscar cliente'],
   },
 ];

@@ -1,10 +1,16 @@
 import { Link, useParams } from 'react-router-dom';
 import { useAdminEventDetail } from '../../hooks/useAdmin';
+import { useSession } from '../../hooks/useSession';
 import { CARD_TYPE_LABELS, EVENT_TYPE_LABELS, formatCurrency, formatDate } from '../../lib/format';
+import { EventCostingSection } from './costing/EventCostingSection';
+import { EventStaffSection } from './staff/EventStaffSection';
+import { AdminContractSection } from './contracts/AdminContractSection';
+import { BeneficiaryPaymentsSection } from './payments/BeneficiaryPaymentsSection';
 
 export default function AdminEventDetailPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const { data, isLoading, isError } = useAdminEventDetail(eventId);
+  const { data: session } = useSession();
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
@@ -86,6 +92,7 @@ export default function AdminEventDetailPage() {
                       <tr>
                         <th className="py-1 pr-2">Tipo</th>
                         <th className="py-1 pr-2">Cant.</th>
+                        <th className="py-1 pr-2">Pagas</th>
                         <th className="py-1 pr-2">Valor actual</th>
                         <th className="py-1">Subtotal</th>
                       </tr>
@@ -95,6 +102,17 @@ export default function AdminEventDetailPage() {
                         <tr key={card.id} className="border-t border-line">
                           <td className="py-1.5 pr-2">{CARD_TYPE_LABELS[card.cardType]}</td>
                           <td className="py-1.5 pr-2">{card.quantity}</td>
+                          <td className="py-1.5 pr-2">
+                            <span
+                              className={
+                                card.quantityPaid >= card.quantity
+                                  ? 'text-emerald-700'
+                                  : 'text-muted'
+                              }
+                            >
+                              {card.quantityPaid} / {card.quantity}
+                            </span>
+                          </td>
                           <td className="py-1.5 pr-2">{formatCurrency(card.unitValue)}</td>
                           <td className="py-1.5 font-medium">{formatCurrency(card.subtotal)}</td>
                         </tr>
@@ -112,9 +130,20 @@ export default function AdminEventDetailPage() {
                     Saldo {formatCurrency(beneficiary.saldo)}
                   </span>
                 </div>
+
+                <BeneficiaryPaymentsSection
+                  eventId={data.event.id}
+                  beneficiaryId={beneficiary.id}
+                  payments={beneficiary.payments}
+                  cards={beneficiary.cards}
+                />
               </div>
             ))}
           </div>
+
+          <EventStaffSection eventId={data.event.id} />
+          {session?.tenantPlan === 'PRO' && <EventCostingSection eventId={data.event.id} />}
+          <AdminContractSection eventId={data.event.id} />
         </div>
       )}
     </main>

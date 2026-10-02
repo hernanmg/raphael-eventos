@@ -1,17 +1,57 @@
 import type {
   AdminEventDetail,
+  BeneficiaryReport,
+  CalendarEntry,
+  ClientDetail,
+  ClientListItem,
+  CommissionAdvanceInput,
+  CommissionAdvanceSummary,
   CreateEventInput,
   CreateIpcEntryInput,
   DashboardSummary,
+  EventContractSummary,
+  ImportedAlumnoRow,
+  IpcStalenessStatus,
+  LeadIntakeInput,
+  LeadSummary,
+  RecordPaymentInput,
+  RecordPaymentResult,
+  UpdateLeadInput,
+  EmployeeInput,
+  EmployeeSummary,
+  EmployeeTimeEntryInput,
+  EmployeeTimeEntrySummary,
+  EventCostingSummary,
   EventDetail,
+  EventServiceCostInput,
+  EventServiceCostSummary,
+  EventStaffAssignmentInput,
+  EventStaffAssignmentSummary,
   EventSummary,
+  EventSupplyLineInput,
+  EventSupplyLineSummary,
+  FixedCostCategoryInput,
+  FixedCostCategorySummary,
   IpcHistoryEntry,
   LoginInput,
+  PayrollEntrySummary,
+  ReminderConfigInput,
+  ReminderConfigSummary,
+  ReminderLogSummary,
+  ReminderSweepResult,
+  PayrollPeriodInput,
+  Plan,
   PublicUser,
   RegisterInput,
+  ServiceCostCategoryInput,
+  ServiceCostCategorySummary,
+  SupplyCategoryInput,
+  SupplyCategorySummary,
+  TenantCostConfigInput,
+  TenantCostConfigSummary,
 } from '@raphael-eventos/shared';
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
 export class ApiError extends Error {
   status: number;
@@ -47,6 +87,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export interface SessionResponse {
   user: PublicUser;
+  tenantPlan: Plan;
 }
 
 export const api = {
@@ -91,11 +132,270 @@ export const api = {
       body: JSON.stringify(input),
     }),
 
-  listIpcHistory: () => request<{ history: IpcHistoryEntry[] }>('/api/v1/admin/ipc'),
+  listIpcHistory: () =>
+    request<{ history: IpcHistoryEntry[]; staleness: IpcStalenessStatus }>('/api/v1/admin/ipc'),
 
   addIpcEntry: (input: CreateIpcEntryInput) =>
     request<{ entry: IpcHistoryEntry }>('/api/v1/admin/ipc', {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+
+  recordPayment: (beneficiaryId: string, input: RecordPaymentInput) =>
+    request<RecordPaymentResult>(`/api/v1/admin/beneficiaries/${beneficiaryId}/payments`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  deletePayment: (paymentId: string) =>
+    request<null>(`/api/v1/admin/payments/${paymentId}`, { method: 'DELETE' }),
+
+  getBeneficiaryReport: (beneficiaryId: string) =>
+    request<{ report: BeneficiaryReport }>(`/api/v1/admin/beneficiaries/${beneficiaryId}/report`),
+
+  listClients: () => request<{ clients: ClientListItem[] }>('/api/v1/admin/clients'),
+
+  getClientDetail: (userId: string) =>
+    request<{ client: ClientDetail }>(`/api/v1/admin/clients/${userId}`),
+
+  // -- Costeo (Plan Pro) ------------------------------------------------
+
+  getCostConfig: () => request<{ config: TenantCostConfigSummary }>('/api/v1/admin/cost-config'),
+
+  updateCostConfig: (input: TenantCostConfigInput) =>
+    request<{ config: TenantCostConfigSummary }>('/api/v1/admin/cost-config', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
+
+  listSupplyCategories: () =>
+    request<{ categories: SupplyCategorySummary[] }>('/api/v1/admin/supply-categories'),
+
+  createSupplyCategory: (input: SupplyCategoryInput) =>
+    request<{ category: SupplyCategorySummary }>('/api/v1/admin/supply-categories', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  deleteSupplyCategory: (id: string) =>
+    request<null>(`/api/v1/admin/supply-categories/${id}`, { method: 'DELETE' }),
+
+  listServiceCostCategories: () =>
+    request<{ categories: ServiceCostCategorySummary[] }>('/api/v1/admin/service-cost-categories'),
+
+  createServiceCostCategory: (input: ServiceCostCategoryInput) =>
+    request<{ category: ServiceCostCategorySummary }>('/api/v1/admin/service-cost-categories', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  deleteServiceCostCategory: (id: string) =>
+    request<null>(`/api/v1/admin/service-cost-categories/${id}`, { method: 'DELETE' }),
+
+  listFixedCostCategories: () =>
+    request<{ categories: FixedCostCategorySummary[] }>('/api/v1/admin/fixed-cost-categories'),
+
+  createFixedCostCategory: (input: FixedCostCategoryInput) =>
+    request<{ category: FixedCostCategorySummary }>('/api/v1/admin/fixed-cost-categories', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  updateFixedCostCategory: (id: string, input: FixedCostCategoryInput) =>
+    request<{ category: FixedCostCategorySummary }>(`/api/v1/admin/fixed-cost-categories/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
+
+  deleteFixedCostCategory: (id: string) =>
+    request<null>(`/api/v1/admin/fixed-cost-categories/${id}`, { method: 'DELETE' }),
+
+  createEventSupplyLine: (eventId: string, input: EventSupplyLineInput) =>
+    request<{ line: EventSupplyLineSummary }>(`/api/v1/admin/events/${eventId}/supply-lines`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  updateEventSupplyLine: (id: string, input: EventSupplyLineInput) =>
+    request<{ line: EventSupplyLineSummary }>(`/api/v1/admin/supply-lines/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
+
+  deleteEventSupplyLine: (id: string) =>
+    request<null>(`/api/v1/admin/supply-lines/${id}`, { method: 'DELETE' }),
+
+  createEventServiceCost: (eventId: string, input: EventServiceCostInput) =>
+    request<{ cost: EventServiceCostSummary }>(`/api/v1/admin/events/${eventId}/service-costs`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  updateEventServiceCost: (id: string, input: EventServiceCostInput) =>
+    request<{ cost: EventServiceCostSummary }>(`/api/v1/admin/service-costs/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
+
+  deleteEventServiceCost: (id: string) =>
+    request<null>(`/api/v1/admin/service-costs/${id}`, { method: 'DELETE' }),
+
+  getEventCosting: (eventId: string, guestCount?: number) =>
+    request<{ costing: EventCostingSummary }>(
+      `/api/v1/admin/events/${eventId}/costing${guestCount ? `?guestCount=${guestCount}` : ''}`,
+    ),
+
+  // -- Personal (Básica: ABM/asignación · Pro: horas/liquidación) -------
+
+  listEmployees: () => request<{ employees: EmployeeSummary[] }>('/api/v1/admin/employees'),
+
+  createEmployee: (input: EmployeeInput) =>
+    request<{ employee: EmployeeSummary }>('/api/v1/admin/employees', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  updateEmployee: (id: string, input: EmployeeInput) =>
+    request<{ employee: EmployeeSummary }>(`/api/v1/admin/employees/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
+
+  listEventStaff: (eventId: string) =>
+    request<{ assignments: EventStaffAssignmentSummary[] }>(
+      `/api/v1/admin/events/${eventId}/staff`,
+    ),
+
+  assignStaff: (eventId: string, input: EventStaffAssignmentInput) =>
+    request<{ assignment: EventStaffAssignmentSummary }>(`/api/v1/admin/events/${eventId}/staff`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  unassignStaff: (assignmentId: string) =>
+    request<null>(`/api/v1/admin/staff-assignments/${assignmentId}`, { method: 'DELETE' }),
+
+  listTimeEntries: (employeeId: string) =>
+    request<{ entries: EmployeeTimeEntrySummary[] }>(
+      `/api/v1/admin/employees/${employeeId}/time-entries`,
+    ),
+
+  recordTimeEntry: (employeeId: string, input: EmployeeTimeEntryInput) =>
+    request<{ entry: EmployeeTimeEntrySummary }>(
+      `/api/v1/admin/employees/${employeeId}/time-entries`,
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
+    ),
+
+  listPayrollEntries: (employeeId: string) =>
+    request<{ entries: PayrollEntrySummary[] }>(`/api/v1/admin/employees/${employeeId}/payroll`),
+
+  computePayroll: (employeeId: string, input: PayrollPeriodInput) =>
+    request<{ entry: PayrollEntrySummary }>(`/api/v1/admin/employees/${employeeId}/payroll`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  listCommissionAdvances: (employeeId: string) =>
+    request<{ advances: CommissionAdvanceSummary[] }>(
+      `/api/v1/admin/employees/${employeeId}/commission-advances`,
+    ),
+
+  recordCommissionAdvance: (employeeId: string, input: CommissionAdvanceInput) =>
+    request<{ advance: CommissionAdvanceSummary }>(
+      `/api/v1/admin/employees/${employeeId}/commission-advances`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+
+  // -- CRM de consultas + Calendario de disponibilidad -------------------
+
+  submitLead: (input: LeadIntakeInput) =>
+    request<{ lead: LeadSummary }>('/api/v1/leads', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  listLeads: (status?: string) =>
+    request<{ leads: LeadSummary[] }>(`/api/v1/admin/leads${status ? `?status=${status}` : ''}`),
+
+  updateLead: (id: string, input: UpdateLeadInput) =>
+    request<{ lead: LeadSummary }>(`/api/v1/admin/leads/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+
+  getCalendar: (from: string, to: string) =>
+    request<{ entries: CalendarEntry[] }>(`/api/v1/admin/calendar?from=${from}&to=${to}`),
+
+  // -- Importación de Excel de alumnos (egreso) ---------------------------
+
+  downloadAlumnosTemplate: async (): Promise<Blob> => {
+    const res = await fetch(`${API_URL}/api/v1/admin/events/import-alumnos/template`, {
+      credentials: 'include',
+    });
+    if (!res.ok) throw new ApiError('No pudimos descargar la plantilla', res.status);
+    return res.blob();
+  },
+
+  importAlumnos: async (file: File): Promise<{ rows: ImportedAlumnoRow[] }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${API_URL}/api/v1/admin/events/import-alumnos`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new ApiError(body?.error?.message ?? 'No pudimos leer el archivo', res.status);
+    }
+    return body as { rows: ImportedAlumnoRow[] };
+  },
+
+  // -- Contratos digitales -------------------------------------------------
+
+  getAdminContract: (eventId: string) =>
+    request<{ contract: EventContractSummary | null }>(`/api/v1/admin/events/${eventId}/contract`),
+
+  uploadContract: async (
+    eventId: string,
+    file: File,
+  ): Promise<{ contract: EventContractSummary }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${API_URL}/api/v1/admin/events/${eventId}/contract`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new ApiError(body?.error?.message ?? 'No pudimos subir el contrato', res.status);
+    }
+    return body as { contract: EventContractSummary };
+  },
+
+  deleteContract: (eventId: string) =>
+    request<null>(`/api/v1/admin/events/${eventId}/contract`, { method: 'DELETE' }),
+
+  getPortalContract: (eventId: string) =>
+    request<{ contract: EventContractSummary | null }>(`/api/v1/portal/events/${eventId}/contract`),
+
+  // -- Recordatorios automáticos --------------------------------------------
+
+  getReminderConfig: () =>
+    request<{ config: ReminderConfigSummary }>('/api/v1/admin/reminder-config'),
+
+  updateReminderConfig: (input: ReminderConfigInput) =>
+    request<{ config: ReminderConfigSummary }>('/api/v1/admin/reminder-config', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
+
+  listReminderLogs: () => request<{ logs: ReminderLogSummary[] }>('/api/v1/admin/reminders/log'),
+
+  runReminders: () =>
+    request<{ result: ReminderSweepResult }>('/api/v1/admin/reminders/run', { method: 'POST' }),
 };

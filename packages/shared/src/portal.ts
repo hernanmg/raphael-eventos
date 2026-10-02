@@ -12,6 +12,16 @@ export interface CardSummary {
   /** Valor unitario ya actualizado por IPC (no el baseValue histórico). */
   unitValue: number;
   subtotal: number;
+  /** Unidades de este tipo ya cubiertas por algún pago con asignación
+   *  explícita (ver PaymentAllocationSummary) — complementario al saldo en
+   *  $, no siempre coincide centavo a centavo porque el valor de tarjeta se
+   *  actualiza por IPC. `quantity - quantityPaid` = unidades pendientes. */
+  quantityPaid: number;
+}
+
+export interface PaymentAllocationSummary {
+  cardType: CardType;
+  quantity: number;
 }
 
 export interface PaymentSummary {
@@ -19,6 +29,7 @@ export interface PaymentSummary {
   amount: number;
   paymentDate: string;
   note: string | null;
+  allocations: PaymentAllocationSummary[];
 }
 
 /**

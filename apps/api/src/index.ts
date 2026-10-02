@@ -10,6 +10,14 @@ import { errorHandler } from './middleware/errorHandler';
 import { authRouter } from './modules/auth/auth.routes';
 import { portalRouter } from './modules/portal/portal.routes';
 import { adminRouter } from './modules/admin/admin.routes';
+import { costingRouter } from './modules/costing/costing.routes';
+import { staffRouter } from './modules/staff/staff.routes';
+import { crmRouter, leadsPublicRouter } from './modules/crm/crm.routes';
+import { importAlumnosRouter } from './modules/admin/importAlumnos';
+import { contractsAdminRouter, contractsPortalRouter } from './modules/contracts/contracts.routes';
+import { remindersRouter } from './modules/reminders/reminders.routes';
+import { startReminderCron } from './jobs/reminderCron';
+import { startIpcCron } from './jobs/ipcCron';
 
 const PgSession = connectPgSimple(session);
 
@@ -50,6 +58,14 @@ export function createApp() {
   apiRouter.use('/auth', authRouter);
   apiRouter.use('/portal', portalRouter);
   apiRouter.use('/admin', adminRouter);
+  apiRouter.use('/admin', costingRouter);
+  apiRouter.use('/admin', staffRouter);
+  apiRouter.use('/admin', crmRouter);
+  apiRouter.use('/admin', importAlumnosRouter);
+  apiRouter.use('/admin', contractsAdminRouter);
+  apiRouter.use('/portal', contractsPortalRouter);
+  apiRouter.use('/admin', remindersRouter);
+  apiRouter.use(leadsPublicRouter);
   app.use('/api/v1', apiRouter);
 
   app.use(errorHandler);
@@ -59,6 +75,10 @@ export function createApp() {
 
 if (require.main === module) {
   const app = createApp();
+  // Solo cuando el server corre de verdad — no al importar createApp() desde
+  // los tests, que no necesitan (ni quieren) un cron corriendo en paralelo.
+  startReminderCron();
+  startIpcCron();
   app.listen(env.PORT, () => {
     console.log(`API escuchando en http://localhost:${env.PORT}`);
   });

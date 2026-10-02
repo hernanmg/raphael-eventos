@@ -24,3 +24,15 @@ export type AccountRole = z.infer<typeof AccountRoleSchema>;
 
 export const TokenPurposeSchema = z.enum(['EMAIL_VERIFICATION', 'PASSWORD_RESET']);
 export type TokenPurpose = z.infer<typeof TokenPurposeSchema>;
+
+export const EmployeeContractTypeSchema = z.enum(['EN_BLANCO', 'MONOTRIBUTO', 'INFORMAL']);
+export type EmployeeContractType = z.infer<typeof EmployeeContractTypeSchema>;
+
+export const EmployeeVariableTypeSchema = z.enum(['NINGUNO', 'MONTO_POR_EVENTO', 'COMISION_PCT']);
+export type EmployeeVariableType = z.infer<typeof EmployeeVariableTypeSchema>;
+
+export const LeadStatusSchema = z.enum(['NUEVO', 'CONTACTADO', 'CON_SENA', 'GANADO', 'PERDIDO']);
+export type LeadStatus = z.infer<typeof LeadStatusSchema>;
+
+export const SupplyUnitSchema = z.enum(['KG', 'LITROS', 'UNIDAD']);
+export type SupplyUnit = z.infer<typeof SupplyUnitSchema>;

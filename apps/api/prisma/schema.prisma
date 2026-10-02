@@ -55,6 +55,47 @@ enum TokenPurpose {
   PASSWORD_RESET
 }
 
+enum EmployeeContractType {
+  EN_BLANCO
+  MONOTRIBUTO
+  INFORMAL
+}
+
+enum EmployeeVariableType {
+  NINGUNO
+  MONTO_POR_EVENTO
+  COMISION_PCT
+}
+
+enum LeadStatus {
+  NUEVO
+  CONTACTADO
+  CON_SENA
+  GANADO
+  PERDIDO
+}
+
+enum ReminderChannel {
+  WHATSAPP
+}
+
+enum ReminderStatus {
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum ReminderTrigger {
+  MANUAL
+  CRON
+}
+
+enum SupplyUnit {
+  KG
+  LITROS
+  UNIDAD
+}
+
 model Tenant {
   id        String   @id @default(cuid())
   name      String
@@ -110,6 +151,10 @@ model Event {
   /// matching automático al registrarse/loguearse con ese mismo email.
   titularName  String?
   titularEmail String?
+  /// Teléfono del contratante — sumado en Fase 2 para poder mandarle
+  /// recordatorios de WhatsApp (ver módulo de recordatorios). No existía en
+  /// Fase 1 porque no hacía falta para nada del portal/panel hasta ahora.
+  titularPhone String?
   /// Mínimo de invitados contratado. Hoy solo se muestra el valor cargado por
   /// el admin, sin lógica de avance automático (eso depende del rol invitado
   /// + RSVP, que es Fase 3).
@@ -121,6 +166,14 @@ model Event {
 
   beneficiaries EventBeneficiary[]
   accounts      EventAccount[]
+
+  supplyLines       EventSupplyLine[]
+  serviceCosts      EventServiceCost[]
+  staffAssignments  EventStaffAssignment[]
+  timeEntries       EmployeeTimeEntry[]
+  commissionAdvances EmployeeCommissionAdvance[]
+  convertedFromLeads Lead[]
+  contract          EventContract?
 
   @@index([tenantId])
   @@index([tenantId, titularEmail])
@@ -155,6 +208,7 @@ model EventBeneficiary {
   cards         EventCard[]
   payments      Payment[]
   eventAccounts EventAccount[]
+  reminderLogs  ReminderLog[]
 
   @@index([tenantId])
   @@index([tenantId, contactEmail])
@@ -229,8 +283,32 @@ model Payment {
   recordedBy    User?            @relation("PaymentRecordedBy", fields: [recordedById], references: [id])
   createdAt     DateTime         @default(now())
 
+  allocations PaymentCardAllocation[]
+
   @@index([tenantId])
   @@map("payments")
+}
+
+/// Qué tarjetas cubre un pago puntual — opcional (un pago puede quedar sin
+/// desglosar, ej. un monto rápido de un 15 años donde no aporta nada
+/// separar por tipo). Cuando se carga, permite mostrar "cuántas unidades de
+/// cada tipo ya están pagas" además del saldo en $ — son dos vistas
+/// complementarias, no la misma cuenta: el saldo en $ es la fuente de
+/// verdad (los valores de tarjeta se actualizan por IPC), esto es una
+/// lectura más humana ("faltan 2 adolescentes y 1 menor").
+model PaymentCardAllocation {
+  id        String   @id @default(cuid())
+  tenantId  String
+  paymentId String
+  payment   Payment  @relation(fields: [paymentId], references: [id])
+  cardType  CardType
+  quantity  Int
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, paymentId])
+  @@map("payment_card_allocations")
 }
 
 /// Vínculo muchos-a-muchos cuenta↔evento con rol.
@@ -273,6 +351,362 @@ model AuthToken {
   @@index([tenantId])
   @@index([userId, purpose])
   @@map("auth_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Costeo (Plan Pro) y Personal (Básica: ABM/asignación · Pro: horas/liquidación)
+// Fase 2 — ver CLAUDE.md "Fase 2 — costeo y personal" para el detalle de las
+// decisiones de negocio (renegociación/tope de seña = solo alerta, personal
+// auto-completa la línea de costo de servicio, Cami/Fede acceso igual).
+// ---------------------------------------------------------------------------
+
+/// Porcentajes y umbrales de costeo editables por tenant. Fila única por tenant.
+model TenantCostConfig {
+  id       String @id @default(cuid())
+  tenantId String @unique
+
+  gananciaPct            Decimal @db.Decimal(5, 4) @default(0.40)
+  roturaPct              Decimal @db.Decimal(5, 4) @default(0.15)
+  ivaPct                 Decimal @db.Decimal(5, 4) @default(0.21)
+  /// % de suba de un insumo que dispara la alerta de renegociación (solo
+  /// informativa — decisión cerrada, nunca bloquea nada).
+  insumoRenegotiationPct Decimal @db.Decimal(5, 4) @default(0.10)
+  /// % máximo de seña anticipada sobre el total (solo informativo, ídem).
+  advanceDepositCapPct   Decimal @db.Decimal(5, 4) @default(0.30)
+
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("tenant_cost_configs")
+}
+
+/// Rubro de insumo, catálogo configurable por tenant (Verdulería, Pollo,
+/// Carnicería...).
+model SupplyCategory {
+  id        String @id @default(cuid())
+  tenantId  String
+  name      String
+  sortOrder Int    @default(0)
+
+  supplyLines EventSupplyLine[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("supply_categories")
+}
+
+/// Línea de insumo cargada contra un evento puntual — no hay catálogo de
+/// productos persistente porque el menú (y la lista de insumos) cambia
+/// evento a evento, tal cual el Excel real de Fede (se rehace desde cero
+/// cada vez). Columnas fijas: producto, cantidad, unidad, costo unitario —
+/// mismo criterio que la plantilla fija de importación de alumnos, sin
+/// parser genérico.
+model EventSupplyLine {
+  id       String @id @default(cuid())
+  tenantId String
+  eventId  String
+  event    Event  @relation(fields: [eventId], references: [id])
+
+  categoryId  String
+  category    SupplyCategory @relation(fields: [categoryId], references: [id])
+  productName String
+  quantity    Decimal @db.Decimal(10, 3)
+  unit        SupplyUnit @default(UNIDAD)
+  unitCost    Decimal @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, productName])
+  @@map("event_supply_lines")
+}
+
+/// Rubro de gasto de servicio por evento, catálogo configurable (Mozos, DJ,
+/// Bacha...).
+model ServiceCostCategory {
+  id       String @id @default(cuid())
+  tenantId String
+  name     String
+
+  serviceCosts EventServiceCost[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("service_cost_categories")
+}
+
+/// Línea de gasto de servicio de un evento puntual. `employeeId` opcional:
+/// si el gasto corresponde a un empleado del módulo de Personal, queda
+/// vinculado acá. `autoGenerated` marca las líneas que creó solo
+/// EventStaffAssignment (personal con componente variable) — decisión
+/// cerrada de auto-completar en vez de cargar el dato dos veces;
+/// `manuallyEdited` evita que una desasignación posterior pise un ajuste
+/// que el admin hizo a mano sobre una línea auto-generada.
+model EventServiceCost {
+  id       String @id @default(cuid())
+  tenantId String
+  eventId  String
+  event    Event  @relation(fields: [eventId], references: [id])
+
+  categoryId String?
+  category   ServiceCostCategory? @relation(fields: [categoryId], references: [id])
+  employeeId String?
+  employee   Employee? @relation(fields: [employeeId], references: [id])
+
+  autoGenerated  Boolean @default(false)
+  manuallyEdited Boolean @default(false)
+  amount         Decimal @db.Decimal(12, 2)
+  note           String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("event_service_costs")
+}
+
+/// Gasto fijo de salón, catálogo configurable (Luz, Gas, Alquiler...).
+/// `monthlyAmount` es el valor "celda amarilla" que Fede pisa cada 2-3
+/// meses — sin historial versionado (a diferencia de IpcIndexValue no hay
+/// una fuente externa que auditar). `guestScaled` es true solo en Alquiler
+/// hoy: prorrateo extra por cada 100 invitados, configurable por si otro
+/// rubro lo necesita en otro salón.
+model FixedCostCategory {
+  id            String  @id @default(cuid())
+  tenantId      String
+  name          String
+  monthlyAmount Decimal @db.Decimal(12, 2)
+  guestScaled   Boolean @default(false)
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("fixed_cost_categories")
+}
+
+/// Empleado del salón (Pao, Adri, etc. en el caso real de Fede).
+/// `contractType` es solo clasificación/etiqueta — sin ninguna lógica
+/// impositiva, mismo criterio que rige para no meterse con
+/// pagos/facturación formal de clientes. La estructura de compensación
+/// (fijo + variable) representa sueldo fijo puro, por evento puro, o mixto.
+model Employee {
+  id       String @id @default(cuid())
+  tenantId String
+
+  fullName           String
+  contractType       EmployeeContractType
+  fixedMonthlyAmount Decimal              @db.Decimal(12, 2) @default(0)
+  /// Monto fijo por evento si es MONTO_POR_EVENTO, o % si es COMISION_PCT.
+  variableType  EmployeeVariableType @default(NINGUNO)
+  variableValue Decimal              @db.Decimal(12, 2) @default(0)
+  active        Boolean              @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments        EventStaffAssignment[]
+  serviceCosts        EventServiceCost[]
+  timeEntries         EmployeeTimeEntry[]
+  payrollEntries      PayrollEntry[]
+  commissionAdvances  EmployeeCommissionAdvance[]
+
+  @@index([tenantId])
+  @@map("employees")
+}
+
+/// Básica: solo registro de quién trabajó en qué evento, sin montos. Si el
+/// empleado tiene componente variable, alta acá dispara la creación
+/// automática de la línea correspondiente en EventServiceCost (ver
+/// staff.service.ts).
+model EventStaffAssignment {
+  id       String @id @default(cuid())
+  tenantId String
+  eventId  String
+  event    Event  @relation(fields: [eventId], references: [id])
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  note       String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, employeeId])
+  @@index([tenantId])
+  @@map("event_staff_assignments")
+}
+
+/// Pro: registro diario de horas, tomando la hoja real "HORAS SALON." de
+/// Fede como referencia de estructura. `hours` nullable porque Fede a veces
+/// anota texto en vez de un número ("Evento", "feriado", "-").
+model EmployeeTimeEntry {
+  id       String @id @default(cuid())
+  tenantId String
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  date       DateTime
+  hours      Decimal? @db.Decimal(5, 2)
+  note       String?
+  eventId    String?
+  event      Event?   @relation(fields: [eventId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([employeeId, date])
+  @@index([tenantId])
+  @@map("employee_time_entries")
+}
+
+/// Pro: liquidación por período (mes). fixedComponent = fijo prorrateado
+/// del período; variableComponent = suma de variable/comisión de los
+/// eventos trabajados ese período.
+model PayrollEntry {
+  id       String @id @default(cuid())
+  tenantId String
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  /// Primer día del mes que representa el período liquidado.
+  period            DateTime
+  fixedComponent    Decimal  @db.Decimal(12, 2)
+  variableComponent Decimal  @db.Decimal(12, 2)
+  advancesDeducted  Decimal  @db.Decimal(12, 2) @default(0)
+  note              String?
+  createdById       String?
+
+  createdAt DateTime @default(now())
+
+  commissionAdvances EmployeeCommissionAdvance[]
+
+  @@unique([employeeId, period])
+  @@index([tenantId])
+  @@map("payroll_entries")
+}
+
+/// Pro: comisión adelantada a cuenta, registrada individualmente (así lo
+/// anota Fede: "2 comisiones adelantadas", "7 comisiones adelantadas...").
+/// Se reconcilia contra un PayrollEntry del período cuando se liquida.
+model EmployeeCommissionAdvance {
+  id       String @id @default(cuid())
+  tenantId String
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  date       DateTime
+  amount     Decimal  @db.Decimal(12, 2)
+  eventId    String?
+  event      Event?   @relation(fields: [eventId], references: [id])
+  note       String?
+
+  reconciledInEntryId String?
+  reconciledInEntry   PayrollEntry? @relation(fields: [reconciledInEntryId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("employee_commission_advances")
+}
+
+// ---------------------------------------------------------------------------
+// CRM de consultas + Calendario de disponibilidad (Fase 2)
+// Comparten el modelo Lead: una consulta "con seña" es lo que reserva
+// tentativamente una fecha en el calendario antes de que exista un Event
+// real — ver CLAUDE.md "Fase 2 — CRM y calendario".
+// ---------------------------------------------------------------------------
+
+model Lead {
+  id       String @id @default(cuid())
+  tenantId String
+
+  fullName String
+  phone    String
+  eventType EventType
+  /// Fecha tentativa que el interesado marcó en el form de la landing —
+  /// opcional (puede no saber la fecha todavía). Se usa para el calendario.
+  interestedDate DateTime?
+  message        String?
+  status         LeadStatus @default(NUEVO)
+  notes          String?
+
+  /// Seteado cuando el admin efectivamente crea el Event a partir de este
+  /// lead (vía el alta normal de evento, no automático) — deja de aparecer
+  /// como tentativo en el calendario, el Event real ya lo cubre.
+  convertedEventId String?
+  convertedEvent    Event?  @relation(fields: [convertedEventId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, interestedDate])
+  @@map("leads")
+}
+
+// ---------------------------------------------------------------------------
+// Contratos digitales (Fase 2) — adjunto simple, sin firma electrónica real
+// (decisión cerrada: el admin sube el PDF ya firmado por otro medio). Ver
+// CLAUDE.md "Fase 2 — contratos digitales".
+// ---------------------------------------------------------------------------
+
+model EventContract {
+  id           String   @id @default(cuid())
+  tenantId     String
+  eventId      String   @unique
+  event        Event    @relation(fields: [eventId], references: [id])
+  fileName     String
+  /// Clave para ContractStorage (apps/api/src/lib/storage.ts) — no es una
+  /// URL pública, el archivo se sirve siempre por un endpoint autenticado.
+  storageKey   String
+  uploadedById String?
+  uploadedAt   DateTime @default(now())
+
+  @@index([tenantId])
+  @@map("event_contracts")
+}
+
+// ---------------------------------------------------------------------------
+// Recordatorios automáticos (Fase 2) — cadencia fija configurable por
+// tenant, canal WhatsApp Business API (sin credenciales todavía — ver
+// apps/api/src/lib/whatsapp.ts). Ver CLAUDE.md "Fase 2 — recordatorios".
+// ---------------------------------------------------------------------------
+
+model TenantReminderConfig {
+  id       String @id @default(cuid())
+  tenantId String @unique
+
+  enabled Boolean         @default(false)
+  channel ReminderChannel @default(WHATSAPP)
+  /// Recordar cada N días mientras haya saldo pendiente.
+  cadenceDaysIfPendingBalance Int @default(15)
+  /// Recordar si faltan X días o menos para el evento y sigue sin saldarse.
+  daysBeforeEventIfUnpaid     Int @default(7)
+
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@map("tenant_reminder_configs")
+}
+
+/// Registro de cada intento de recordatorio, exitoso o no — sirve como log
+/// de auditoría y, mientras no haya WhatsApp Business API conectado, como
+/// lista manual de "a quién había que escribirle y qué" (ver
+/// UnconfiguredWhatsAppSender en whatsapp.ts).
+model ReminderLog {
+  id       String @id @default(cuid())
+  tenantId String
+
+  beneficiaryId String
+  beneficiary   EventBeneficiary @relation(fields: [beneficiaryId], references: [id])
+  channel       ReminderChannel
+  message       String
+  status        ReminderStatus
+  errorMessage  String?
+  trigger       ReminderTrigger
+
+  sentAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, beneficiaryId])
+  @@map("reminder_logs")
 }
 
 // NOTA sobre la tabla "session" (express-session / connect-pg-simple): su DDL

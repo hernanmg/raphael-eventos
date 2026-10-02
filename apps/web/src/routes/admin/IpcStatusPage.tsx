@@ -38,11 +38,17 @@ export default function IpcStatusPage() {
       </Link>
       <h1 className="mt-4 font-serif text-3xl font-semibold">Estado del IPC</h1>
       <p className="mt-2 text-sm text-muted">
-        El fetch automático contra datos.gob.ar todavía no está construido — mientras tanto, cada
-        período se carga acá a mano con los mismos dos valores que usaría el job (último valor
-        publicado y el anterior). El índice se encadena sobre el último cargado, nunca se recalcula
+        El valor se actualiza solo todos los meses contra datos.gob.ar. Si por algún motivo no se
+        pudo traer el dato actualizado, cargalo acá a mano con el % de variación del mes anterior y
+        el último publicado — el índice se encadena sobre el último cargado, nunca se recalcula
         hacia atrás.
       </p>
+
+      {data?.staleness.stale && (
+        <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          {data.staleness.message}
+        </div>
+      )}
 
       {latest && (
         <div className="mt-6 rounded-2xl border border-line bg-paper p-5">
@@ -68,14 +74,14 @@ export default function IpcStatusPage() {
             {...register('period')}
           />
           <FormField
-            label="Valor anterior"
+            label="% variación mes anterior"
             type="number"
             step="0.01"
             error={errors.sourcePreviousValue?.message}
             {...register('sourcePreviousValue')}
           />
           <FormField
-            label="Valor último"
+            label="% variación mes actual"
             type="number"
             step="0.01"
             error={errors.sourceLatestValue?.message}
@@ -119,7 +125,7 @@ export default function IpcStatusPage() {
                   <td className="px-4 py-2.5">{formatDate(entry.period)}</td>
                   <td className="px-4 py-2.5 font-medium">{entry.indexValue.toFixed(2)}</td>
                   <td className="px-4 py-2.5 text-muted">
-                    {entry.sourcePreviousValue} → {entry.sourceLatestValue}
+                    {entry.sourcePreviousValue}% → {entry.sourceLatestValue}%
                   </td>
                   <td className="px-4 py-2.5 text-muted">
                     {formatDate(entry.fetchedAt)}

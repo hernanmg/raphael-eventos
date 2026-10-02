@@ -6,10 +6,10 @@ para venderse a otros salones más adelante. El contexto completo de producto
 (decisiones del cliente, reuniones, costos) vive en `docs/` — leerlo antes de
 tocar cualquier decisión de negocio no cubierta acá.
 
-## Alcance actual: SOLO Fase 1
+## Alcance: Fase 1 completa, Fase 2 en construcción
 
-De las 4 fases descritas en `docs/01-propuesta-plataforma-digital.md`, hoy se
-construye **únicamente la Fase 1 (Base)**:
+De las 4 fases descritas en `docs/01-propuesta-plataforma-digital.md`, la
+**Fase 1 (Base)** está completa y cerrada:
 
 - Landing comercial (referencia de diseño/contenido: `docs/landing/landing.html`).
 - Login/registro del cliente, vinculado a sus eventos por email.
@@ -17,12 +17,364 @@ construye **únicamente la Fase 1 (Base)**:
   según el tipo de evento), valor actualizado por IPC.
 - Panel admin básico: dashboard, alta de eventos, vista de estado del IPC.
 
-**Explícitamente fuera de esta etapa** (no implementar sin preguntar antes, aunque
-estén documentadas en `docs/`): módulo de costeo/stock (plan Pro), directorio de
-proveedores, rol invitado + QR, recordatorios por WhatsApp, CRM de consultas,
-calendario de disponibilidad, cualquier cosa de pagos/facturación. Si en el medio
-del desarrollo algo de esto parece trivial de sumar, **preguntar primero** — el
-objetivo es una Fase 1 sólida, no varias fases a medio hacer.
+Ahora en construcción la **Fase 2 ("Cobrar y vender mejor")** — ver las
+secciones de abajo para el detalle de cada módulo y su estado real. Sigue
+**explícitamente fuera de alcance** (no implementar sin preguntar antes,
+aunque esté documentado en `docs/`): directorio de proveedores, rol invitado
+
+- QR, cualquier cosa de pagos/facturación real (gateway de cobro). Esos son
+  Fase 3/4, no se adelantan sin que el usuario lo pida.
+
+## Fase 2 — costeo y personal (implementado)
+
+Se suman dos módulos nuevos al alcance ya planeado de Fase 2 (CRM de consultas,
+calendario de disponibilidad, recordatorios automáticos, contratos digitales —
+esos siguen en pie, estos dos no los reemplazan). Salieron de analizar el Excel
+real de costeo de Fede (`docs/raphael_eventos_costos.xlsx`: hojas `COSTOS`,
+`PRECIOS.`, `HORAS SALON.`) y de una reunión posterior a
+`docs/03-reunion-cami-fede.md` — ese doc puede estar desactualizado en los
+puntos donde difiere de esta sección, que es la fuente más reciente.
+
+**Ambos módulos completos de punta a punta**: migración
+(`20260908120000_costeo_personal`, con RLS/GRANT incluidos), backend
+(`apps/api/src/modules/costing/`, `apps/api/src/modules/staff/`,
+middleware nuevo `requirePlan.ts` que consulta el plan del tenant fresco en
+cada request igual que `requireRole`), schemas compartidos
+(`packages/shared/src/costing.ts`, `staff.ts`) y frontend
+(`/admin/costeo/config`, `/admin/personal`,
+`/admin/personal/:employeeId/liquidacion`, más las secciones de costeo y
+personal embebidas en `AdminEventDetailPage`). `GET /me` ahora devuelve
+también `tenantPlan` (`auth.service.ts#getTenantPlan`) para que el frontend
+gatee las pantallas Pro sin un round-trip extra. El tenant seed
+(`prisma/seed.ts`) quedó en Plan PRO con los 3 catálogos reales del Excel de
+Fede precargados (13 rubros de insumo, 8 de servicio, 13 gastos fijos con
+Alquiler marcado `guestScaled`) y dos empleados de ejemplo (Pao con comisión,
+Adri con fijo + variable por evento), uno de ellos ya asignado al evento
+demo para poder probar la auto-generación de `EventServiceCost` sin pasos
+manuales previos.
+
+**Gotcha real encontrado en el smoke test**: `Event.minGuests` es `null`
+para QUINCE/BODA/EMPRESARIAL a propósito (Fase 1: ese campo es específico
+del "mínimo contratado" de EGRESO) — usarlo como default de `guestCount`
+para el costeo dejaba "Costo x 100 invitados"/"Costo tarjeta" en $0 para los
+otros 3 tipos de evento. Fix: `EventCostingSection` tiene un input de
+"Invitados para el cálculo" que sobreescribe el default vía
+`GET /admin/events/:id/costing?guestCount=`; con 0 invitados muestra un aviso
+en vez de números en cero silenciosos.
+
+**Verificado con Playwright (skill `webapp-testing`)**: login admin, catálogos
+de costeo cargados desde el seed, ABM de personal con Pao/Adri, detalle de
+evento con "Personal asignado" (Pao ya asignado) y "Costeo (Plan Pro)"
+mostrando la línea de servicio auto-generada (`auto (personal)`), alta de una
+línea de insumo de prueba recalculando costo neto/costo tarjeta en vivo, y
+liquidación de Adri (carga de hora + liquidar mes) en
+`/admin/personal/:id/liquidacion`. Matemática del costeo verificada a mano
+contra los números mostrados (costo x100 invitados y costo tarjeta con
+ganancia/rotura/IVA aplicados correctamente).
+
+No tocar `schema.prisma` de estos dos módulos salvo que se pida un cambio
+explícito — el diseño ya está construido y probado, no es un borrador.
+
+**Cami y Fede son dueños del salón y acceden por igual a todo el panel admin,
+incluido personal/nómina** — no hay ninguna restricción VENDEDOR vs ADMIN
+dentro de estos dos módulos nuevos (a diferencia de otras decisiones de
+acceso que sí puedan existir en el resto de la app).
+
+### Módulo de costeo (Plan Pro)
+
+Rehace en la app el cálculo que Fede hoy hace a mano en Excel. Modelos
+propuestos:
+
+- `TenantCostConfig` (fila única por tenant): `gananciaPct` (0.40),
+  `roturaPct` (0.15), `ivaPct` (0.21), `insumoRenegotiationPct` (0.10),
+  `advanceDepositCapPct` (0.30) — todos editables, no hardcodeados.
+- `SupplyCategory` — catálogo de rubros de insumo configurable por tenant
+  (Verdulería, Pollo, Carnicería, Pescadería, Macro, Panadería, Fiambre,
+  Golosinas, Alcohol, Descartables/Limpieza, Repostería, Sushi, Lavandería).
+- `EventSupplyLine` — línea de insumo cargada **contra un evento puntual**,
+  no un catálogo de productos persistente: el menú (y por lo tanto la lista
+  de insumos) cambia evento a evento, tal cual el Excel real (`PRECIOS.` se
+  rehace desde cero cada vez). Columnas fijas: `productName`, `presentation`,
+  `quantity`, `unitCost`, más `categoryId`. El admin la completa vía form o
+  plantilla `.xlsx` de columnas fijas — **no** un importador genérico que
+  intente leer cualquier Excel (la estructura real de Fede cambia mes a mes:
+  orden de columnas, tipos de dato, unidades — se rompería seguido).
+- `ServiceCostCategory` + `EventServiceCost` — gasto de servicio por evento
+  (Mozos, Barra, Bacha, DJ, Fotógrafo, Seguridad, Flecha, Baño...).
+  `EventServiceCost.employeeId` es opcional: cuando el gasto corresponde a un
+  empleado dado de alta en el módulo de personal, se vincula ahí (ver
+  "Personal ↔ costeo" abajo).
+- `FixedCostCategory` — gasto fijo de salón (Luz, Gas, Alquiler, Piletero,
+  Jardinero, Limpieza, Horas semanales, Comisiones, Lavandería, Canva, Meta,
+  Contador, Seguro), con `monthlyAmount` (el valor "celda amarilla" que Fede
+  pisa cada 2-3 meses, sin historial versionado — a diferencia de
+  `IpcIndexValue` no hay una fuente externa que auditar) y `guestScaled`
+  (bool, default false, true solo en Alquiler hoy: prorrateo extra por cada
+  100 invitados, configurable por si otro rubro lo necesita en otro salón).
+
+Fórmula (computada en runtime a partir de estas tablas + `TenantCostConfig`,
+mismo criterio que ya usa `indexFactor()` para el IPC — no se snapshotea el
+resultado en una tabla de "cierre" del costeo):
+
+```
+costo_neto_evento = Σ(EventSupplyLine) + Σ(EventServiceCost)
+                     + Σ(FixedCostCategory.monthlyAmount / eventos_del_mes,
+                         con el ajuste extra /(invitados/100) si guestScaled)
+costo_por_100_invitados = costo_neto_evento / (invitados / 100)
+costo_tarjeta = costo_por_100_invitados × (1 + ganancia) × (1 + rotura) × (1 + iva)
+```
+
+**Renegociación de insumos (>10% configurable) y tope de seña (30%
+configurable): decisión cerrada — solo alerta visual, nunca bloquean nada.**
+Si un insumo cargado supera `insumoRenegotiationPct` respecto a su valor
+anterior, el evento muestra un aviso; si un pago supera
+`advanceDepositCapPct` del total, el form de carga de pago avisa pero permite
+igual registrarlo. Ningún flujo queda bloqueado por estos umbrales.
+
+### Módulo de personal (Básica: ABM + asignación · Pro: horas/liquidación)
+
+No estaba en ningún doc anterior — sale de la hoja real `HORAS SALON.`
+(registro diario de horas de Pao/Adri + pago mensual + notas de "comisiones
+adelantadas").
+
+- `Employee`: `contractType` (`EN_BLANCO` / `MONOTRIBUTO` / `INFORMAL` — solo
+  clasificación/etiqueta, **sin ninguna lógica impositiva**, mismo criterio
+  que ya rige para no meterse con pagos/facturación formal de clientes) +
+  estructura de compensación (`fixedMonthlyAmount`, puede ser 0; `variableType`
+  `NINGUNO`/`MONTO_POR_EVENTO`/`COMISION_PCT` + `variableValue`, puede ser 0)
+  para representar sueldo fijo puro, por evento puro, o mixto (caso real de
+  Pao y Adri). ABM (alta/edición/baja vía `active`) es Plan Básica.
+- `EventStaffAssignment` (Básica): solo quién trabajó en qué evento, sin
+  montos.
+- `EmployeeTimeEntry`, `PayrollEntry`, `EmployeeCommissionAdvance` (Pro):
+  registro de horas por día (`hours` nullable — Fede a veces anota texto en
+  vez de un número: "Evento", "feriado", "-"), liquidación por período
+  (`fixedComponent` + `variableComponent`), y comisiones adelantadas a cuenta
+  registradas individualmente (reconciliables contra un `PayrollEntry`
+  posterior) — mismo espíritu que la decisión ya tomada de "sin pagos en la
+  app" para clientes (es dinero real hacia terceros, registro para uso
+  interno de Fede/Cami, no generación de recibos válidos ni transferencias
+  reales).
+
+**Personal ↔ costeo: decisión cerrada — auto-completar.** Cuando se asigna a
+un evento un empleado con `variableType` distinto de `NINGUNO`, esa
+asignación (`EventStaffAssignment`) genera sola la línea correspondiente en
+`EventServiceCost` (vinculada por `employeeId`) en vez de cargarse a mano dos
+veces; el admin puede editar el monto igual si el real difiere del calculado.
+
+## Fase 2 — CRM de consultas + Calendario de disponibilidad (implementado)
+
+Comparten un único modelo, `Lead` (migración `20260908130000_crm_calendario`,
+con RLS), porque una consulta "con seña" es justamente lo que reserva
+tentativamente una fecha en el calendario antes de que exista un `Event`
+real. `LeadStatus` = `NUEVO / CONTACTADO / CON_SENA / GANADO / PERDIDO`.
+Mismo criterio de acceso que el resto de Fase 2: `requireRole('ADMIN',
+'VENDEDOR')`, sin diferenciar Cami de Fede.
+
+- **Alta pública sin auth**: `POST /api/v1/leads` (`apps/api/src/modules/crm/`),
+  detrás de `express-rate-limit` (20 cada 15 min) igual criterio que
+  `/auth/login` — es un endpoint público expuesto a abuso. Lo llama
+  `QuoteForm.tsx` de la landing, que ahora hace dos cosas al enviarse: crea el
+  lead vía este endpoint (si falla, no bloquea nada) y sigue abriendo
+  WhatsApp con el mensaje armado, que sigue siendo el canal real de
+  conversación. El campo "Fecha tentativa" pasó de texto libre a
+  `<input type="date">` para que el dato sea usable en el calendario.
+- **Gestión admin**: `GET/PATCH /api/v1/admin/leads` (`/admin/consultas`,
+  `LeadsPage.tsx`) — filtro por estado, notas internas editables inline.
+- **Calendario**: `GET /api/v1/admin/calendar?from&to` junta `Event` por
+  `eventDate` (confirmado) + `Lead` por `interestedDate` con status
+  `NUEVO/CONTACTADO/CON_SENA` (tentativo — se excluye `GANADO`/`PERDIDO` para
+  no duplicar contra el `Event` real una vez convertido, ni mostrar fechas ya
+  descartadas). `/admin/calendario` (`AvailabilityCalendarPage.tsx`) es una
+  grilla mensual simple, confirmado en sólido vs. tentativo en punteado.
+- `Event.titularPhone` (nuevo campo, mismo criterio que `titularEmail`) se
+  sumó en esta misma migración porque hacía falta para el módulo de
+  recordatorios (siguiente) — antes no existía ningún teléfono de contacto
+  del titular en el modelo.
+
+No hay conversión automática lead→evento: el admin sigue dando de alta el
+evento por el flujo normal (`/admin/eventos/nuevo`) y opcionalmente marca el
+lead como `GANADO` con `convertedEventId` — evita duplicar la lógica de alta
+de evento (matching por email, tarjetas, etc.) en un segundo lugar.
+
+Verificado con Playwright de punta a punta: envío de una consulta desde la
+landing (queda creada Y sigue abriendo WhatsApp con el texto correcto),
+aparece en `/admin/consultas`, cambio de estado a "Con seña" sin error, y la
+fecha tentativa aparece marcada (punteado) en `/admin/calendario` en el mes
+correcto junto al evento confirmado del seed (sólido).
+
+## Fase 2 — Importación de Excel de alumnos (implementado)
+
+No suma modelos nuevos — es un modo de carga alternativo sobre `POST
+/admin/events` que ya existía (`CreateEventSchema.alumnos`), mismo criterio
+que el resto de Fase 2: plantilla de columnas fijas, no un parser genérico
+(`apps/api/src/modules/admin/importAlumnos.ts`, con `exceljs`):
+
+- `GET /admin/events/import-alumnos/template` genera y sirve un `.xlsx` con
+  columnas fijas (`nombre`, `email de contacto`, `teléfono`) + una fila de
+  ejemplo.
+- `POST /admin/events/import-alumnos` (multipart, `multer` en memoria)
+  parsea el `.xlsx` subido **sin crear nada todavía** — devuelve las filas
+  parseadas + un error por fila si falta el nombre o el email es inválido.
+  Las columnas se ubican por nombre de encabezado (no por posición fija), así
+  que tolera que el admin reordene columnas en su propia copia de la
+  plantilla.
+- `CreateEventPage.tsx`: cuando `type === 'EGRESO'`, los botones "Descargar
+  plantilla" / "Importar desde Excel" hacen `replace()` sobre el
+  `useFieldArray` de alumnos con las filas devueltas — el admin sigue viendo
+  y editando cada fila antes de mandar el alta real, la importación solo
+  evita la carga manual repetitiva.
+- De paso se sumó `contactPhone` a `AlumnoInputSchema`/`EventBeneficiary`
+  (la columna ya existía en el modelo desde Fase 1 pero no estaba conectada a
+  ningún input) — hacía falta para que el módulo de recordatorios pueda
+  mandarle un WhatsApp a la familia de cada alumno.
+
+**Gotcha de tipos real:** `exceljs` declara `Workbook.xlsx.load()` contra su
+propia copia de `@types/node` (hoisting en `node_modules`), nominalmente
+distinta de la de este workspace — ni `Buffer.from()` ni un cast `as unknown
+as Buffer` conforman, hace falta `as any` puntual (con
+`eslint-disable-next-line`, mismo criterio que `validate.ts`). El buffer en
+sí es válido en runtime, es un choque de tipos entre paquetes, no un bug real.
+
+Verificado con Playwright: descarga de la plantilla real desde el form, subida
+del mismo archivo sin modificar (round-trip), y la fila de ejemplo
+("Juan Pérez") aparece cargada en el form de alta con nombre/email/teléfono
+correctos.
+
+## Fase 2 — Contratos digitales (implementado)
+
+Adjunto simple — decisión cerrada, sin firma electrónica real (el admin sube
+un PDF ya firmado por otro medio). Modelo `EventContract` (migración
+`20260908140000_contratos`, `eventId` único: un contrato por evento,
+re-subir reemplaza el anterior).
+
+- `apps/api/src/lib/storage.ts`: interfaz `ContractStorage` +
+  `LocalFsContractStorage` (filesystem local bajo `apps/api/storage/`,
+  gitignored) — no hay Supabase Storage conectado (el dev usa Postgres
+  propio en Docker, no Supabase). Swap a Supabase Storage pendiente para
+  cuando se configure el deploy real; el resto del código no cambia porque
+  todo pasa por la interfaz.
+- `apps/api/src/modules/contracts/`: `contracts.service.ts` (lógica
+  compartida) + `contracts.routes.ts` con dos routers — `contractsAdminRouter`
+  (`POST/GET/DELETE /admin/events/:eventId/contract`,
+  `GET .../contract/file` con `multer` en memoria, valida
+  `application/pdf`, 10MB máx.) y `contractsPortalRouter`
+  (`GET /portal/events/:eventId/contract[/file]`, requiere algún
+  `EventAccount` para ese evento — **sin** el recorte own/aggregate: el
+  contrato es del evento entero, no hay dato financiero de otra familia en
+  juego, así que cualquier rol vinculado lo puede ver).
+- Frontend: `AdminContractSection.tsx` embebido en `AdminEventDetailPage`
+  (subir/reemplazar/eliminar + link de descarga), `PortalContractLink.tsx`
+  embebido en `EventDetailPage` del portal (solo aparece si hay contrato
+  cargado). Los links de descarga son `<a href>` directos al endpoint de la
+  API (no `fetch`+blob) — la cookie de sesión viaja igual en una navegación
+  normal, no hace falta manejarlo a mano.
+
+Verificado con Playwright: subida de un PDF de prueba desde el admin,
+descarga con `Content-Type: application/pdf` correcto, y el mismo contrato
+visible con "Ver contrato" desde el portal del cliente titular de ese evento.
+
+## Fase 2 — Recordatorios automáticos (implementado)
+
+Cadencia fija configurable por tenant, sin plan de cuotas/vencimientos nuevo
+(decisión cerrada) — canal WhatsApp Business API (sin credenciales todavía,
+ver limitación abajo). Modelos `TenantReminderConfig` (fila única por
+tenant) y `ReminderLog` (migración `20260908150000_recordatorios`, con RLS).
+
+- `apps/api/src/lib/whatsapp.ts`: interfaz `WhatsAppSender` +
+  `UnconfiguredWhatsAppSender`, que devuelve siempre `{ok:false, error:
+'WhatsApp Business API no configurado todavía'}` — **explícito, no simula
+  un envío exitoso**. Cuando exista la alta en Meta Business Manager, se
+  agrega una implementación nueva y se swapea acá sin tocar
+  `reminders.service.ts`.
+- `apps/api/src/modules/reminders/reminders.service.ts#runReminderSweep`:
+  recorre `EventBeneficiary` del tenant con saldo pendiente (reusa
+  `computeBeneficiaryFinancials`), decide por beneficiary si corresponde
+  recordatorio (sin `ReminderLog` previo → primer recordatorio; evento
+  dentro de `daysBeforeEventIfUnpaid` días → recordatorio de urgencia
+  independiente de la cadencia; si no, cadencia normal
+  `cadenceDaysIfPendingBalance` desde el último log), arma el mensaje,
+  intenta `WhatsAppSender.send` contra `EventBeneficiary.contactPhone`
+  (egreso) o `Event.titularPhone` (resto) — sin teléfono cargado, la fila
+  queda `SKIPPED` con el motivo explícito en vez de fallar en silencio.
+- `apps/api/src/jobs/reminderCron.ts`: `node-cron` diario (09:00),
+  `startReminderCron()` se llama solo dentro del `if (require.main ===
+module)` de `index.ts` — nunca al importar `createApp()` desde los tests,
+  que no necesitan un cron corriendo en paralelo. Itera todos los tenants
+  con `TenantReminderConfig.enabled = true`.
+- `GET/PUT /admin/reminder-config`, `GET /admin/reminders/log`,
+  `POST /admin/reminders/run` (dispara el barrido manualmente,
+  `trigger: MANUAL`) — `/admin/recordatorios` (`RemindersPage.tsx`): config +
+  botón "Enviar ahora" + log completo, incluidos los `SKIPPED`/`FAILED` con
+  el mensaje que le tocaba a cada contacto — usable a mano mientras no haya
+  WhatsApp real conectado.
+
+**Limitación real, no un bug**: sin alta en Meta Business Manager, todo
+recordatorio termina en `FAILED` (si hay teléfono) o `SKIPPED` (si no hay
+teléfono cargado) — nunca `SENT`. Verificado con Playwright disparando un
+barrido manual contra el seed: 3 beneficiarios con saldo pendiente
+revisados, los 3 `SKIPPED` por falta de teléfono cargado (ninguno de los
+fixtures del seed tiene `contactPhone`/`titularPhone`), con el mensaje
+completo (nombre, saldo, evento, fecha) visible en el log — confirma que el
+pipeline completo funciona de punta a punta hasta el límite real de la
+integración externa.
+
+## Fase 2 — asignación de pagos por tarjeta + vista de cliente (implementado)
+
+Feedback real post-entrega: el saldo en $ ya andaba bien, pero no había
+forma de saber **qué tarjetas puntuales** cubre un pago (ej. "esta familia
+pagó 2 adultos y 1 menor, faltan 2 adolescentes y 1 menor"), y revisar un
+cliente con 2+ eventos significaba ir evento por evento a mano.
+
+**Asignación de pagos — decisión cerrada: opcional, no obligatoria.** Un
+pago rápido (típico de un 15 años, donde paga una sola persona) puede
+seguir siendo solo un monto sin desglosar; el desglose se usa cuando aporta
+(egresos, pagos parciales por tipo). Nuevo modelo `PaymentCardAllocation`
+(migración `20260908170000_payment_allocations`, con RLS) —
+`{paymentId, cardType, quantity}`, sin unique constraint (un pago puede
+tener varias líneas, una por tipo). El saldo en $ sigue siendo la fuente de
+verdad (los valores de tarjeta se actualizan por IPC, así que "cuánto falta
+en $" y "cuántas unidades faltan" son dos lecturas complementarias, no la
+misma cuenta — no siempre coinciden centavo a centavo).
+
+- `admin.service.ts#recordPayment` valida cada línea de `input.allocations`
+  contra lo que realmente falta de ese tipo (cantidad total del
+  `EventCard` menos lo ya asignado en pagos previos de ese beneficiary) —
+  rechaza con 400 (`InvalidAllocationError`) si se intenta marcar como
+  pagas más unidades de las que existen o ya están cubiertas. Al borrar un
+  pago (`deletePayment`), borra primero sus asignaciones (la FK es
+  `RESTRICT`, no `CASCADE`, a propósito para no perder ese borrado en
+  silencio si algún día se agrega otra lógica ahí).
+- `lib/financials.ts`: `serializeCard()` ahora recibe `quantityPaid` (suma
+  de asignaciones de ese tipo across todos los pagos del beneficiary, vía
+  `quantityPaidByType()`) y lo devuelve en `CardSummary.quantityPaid`.
+  `serializePayment()` nuevo — arma `PaymentSummary` con sus
+  `allocations[]`, reusado por `admin.service.ts` y `portal.service.ts`
+  para no duplicar el mapeo.
+- UI: `BeneficiaryPaymentsSection.tsx` — al cargar un pago, un toggle
+  opcional "¿Este pago cubre tarjetas puntuales?" muestra un input por tipo
+  con cupo restante ya calculado. Columna "Pagas" (`X / Y`) agregada a la
+  tabla de tarjetas en `AdminEventDetailPage`, `EventDetailPage` del portal
+  (scope "own" — el propio dato del cliente, no cambia ninguna regla de
+  privacidad existente) y `BeneficiaryReportPage` (reporte imprimible).
+
+**Vista de cliente — un mismo cliente puede tener 2+ eventos.** Antes no
+había forma de revisar el estado de un cliente sin ir evento por evento.
+Nuevo: `admin.service.ts#listClients`/`getClientDetail` — junta todos los
+`EventAccount` de un `User` (rol CLIENTE) con el resumen financiero de cada
+uno (reusa `computeBeneficiaryFinancials` para vínculos "own",
+`computeAggregateFinancials` para titulares de egreso "aggregate", mismo
+criterio de scope que ya regía en el portal — no se inventó una regla de
+privacidad nueva). `/admin/clientes` (buscador simple por nombre/email) +
+`/admin/clientes/:userId` (lista de eventos con saldo, cada uno linkeando
+al detalle real del evento para seguir operando ahí — esta vista es un
+punto de entrada/resumen, no duplica la UI de pagos/costeo).
+
+Verificado con Playwright: pago de $40.000 asignado a "2 Adulto" en el
+evento demo — la tabla pasa a mostrar "2 / 80" tanto en el admin como en el
+portal del cliente (mismo dato, dos pantallas), y `/admin/clientes` lista
+al usuario demo con sus 2 eventos (uno "own" con saldo real, uno
+"aggregate" marcado "ve solo el agregado del evento").
 
 ## Arquitectura
 
@@ -479,3 +831,130 @@ test nuevo ahí que cree eventos con otro criterio.
 `vitest` — lo corre él. Sí correr `typecheck`, `build`, migraciones y seed
 cuando corresponda. Motivo: correr la suite reiteradas veces contra la base
 de desarrollo compartida fue justamente lo que causó el bug de arriba.
+
+**Con esto se completó toda la Fase 2** ("Cobrar y vender mejor" + los dos
+módulos nuevos de costeo/personal) — ver las secciones "Fase 2 — ..." de
+arriba para el detalle de cada módulo. Cinco migraciones nuevas sobre la
+base de Fase 1 (`20260908120000_costeo_personal`,
+`20260908130000_crm_calendario`, `20260908140000_contratos`,
+`20260908150000_recordatorios`, todas con RLS), dependencias nuevas en
+`apps/api` (`exceljs`, `multer`, `node-cron`), y pantallas nuevas:
+`/admin/costeo/config`, `/admin/personal`,
+`/admin/personal/:id/liquidacion`, `/admin/consultas`, `/admin/calendario`,
+`/admin/recordatorios`, más las secciones embebidas en
+`AdminEventDetailPage` (personal asignado, costeo, contrato) y
+`EventDetailPage` del portal (link de contrato). `typecheck` + `lint` +
+`build` limpios en las 3 carpetas después de cada módulo, y cada uno
+verificado de punta a punta con Playwright contra los dos dev servers
+levantados juntos (no `npm run test`, por la preferencia de arriba).
+
+No corrí `npm audit fix` sobre las dependencias nuevas (`exceljs`/`multer`
+arrastran algunas vulnerabilidades moderadas/altas en transitivas, según
+`npm install`) — quedó sin resolver a propósito para no arriesgar romper algo
+sin poder correr la suite; revisar con `npm audit` antes de un deploy real.
+
+Dos límites externos reales, no bugs, que quedan documentados en sus
+secciones: WhatsApp Business API sin credenciales (recordatorios corren
+completos pero terminan en `FAILED`/`SKIPPED`, nunca `SENT`) y Supabase
+Storage sin conectar (contratos usan filesystem local en dev). Cuando el
+usuario tenga esas credenciales/cuenta, son swaps acotados detrás de las
+interfaces `WhatsAppSender`/`ContractStorage`, no un rediseño.
+
+Resto de Fase 2 sin construir todavía, ninguno pedido en esta ronda:
+micrositio de invitados + RSVP + mural de fotos + QR (Fase 3), directorio de
+proveedores, reportes avanzados/exportaciones/trazabilidad (Fase 4).
+
+## Fase 2 — ajustes de feedback real post-entrega
+
+El usuario probó la app entregada y volvió con una ronda de feedback real —
+un bug de cálculo real (IPC), un hueco funcional (alta de pagos, nunca
+construido), y varios ajustes de UX. Todo lo de acá ya está implementado y
+verificado con Playwright.
+
+**Fix de cálculo real — el IPC se calculaba mal.** La fórmula heredada de
+Fase 1 (`sourceLatestValue / sourcePreviousValue`) asumía que la serie de
+datos.gob.ar devuelve niveles de índice. Consultando la API real
+(`https://apis.datos.gob.ar/series/api/series/?ids=145.3_INGNACUAL_DICI_M_38&limit=2&sort=desc`)
+se confirmó que en realidad es una serie de **variación intermensual**
+(`"units":"Variación intermensual"` en la respuesta) — cada valor ya es un
+% de variación (ej. `0.0211377...` = +2.11% en julio), no un nivel. Con la
+fórmula vieja, dos meses reales de inflación (1.9% y 2.1%) daban una
+"variación" de 2.1/1.9 ≈ 1.105 (un 10.5% en vez de 2.1%) — un error real
+sobre plata de clientes. Corregido en `admin.service.ts#addIpcEntry`:
+`índice_nuevo = índice_anterior × (1 + sourceLatestValue/100)`, usando solo
+el valor más reciente (el anterior queda de referencia/auditoría).
+`sourcePreviousValue`/`sourceLatestValue` (mismos nombres de columna, sin
+migración) ahora son puntos porcentuales, no niveles — labels del form en
+`/admin/ipc` actualizados a "% variación mes anterior/actual".
+
+**IPC automático, implementado (no estaba construido pese a lo que decía
+esta sección antes)**: `apps/api/src/lib/ipc.ts` —
+`fetchLatestIpcPeriod()` llama la API real con timeout de 8s, nunca la llama
+una pantalla de cliente/admin (mismo principio de robustez ya establecido:
+solo el cron, `apps/api/src/jobs/ipcCron.ts`, diario a las 08:00). Si hay un
+período más nuevo que el guardado, lo encadena y lo escribe
+(`triggeredById: null` = automático). Si la API falla, no hace nada — las
+pantallas siguen leyendo el último valor guardado, como siempre.
+`getIpcStaleness()`: pasado el día 14 del mes (la serie se publica ese día)
+sin que el período esperado esté guardado, devuelve un aviso — **decisión
+cerrada: el aviso aparece solo en `/admin/ipc` y como banner en
+`/admin` (dashboard), nunca en el portal cliente**, que sigue mostrando el
+último valor guardado sin interrumpir la pantalla. `GET /admin/ipc` ahora
+devuelve `{ history, staleness }`.
+
+**Hueco real encontrado: no existía forma de cargar un pago.** Fase 1 solo
+tenía lectura de `payments` (`getEventDetailForAdmin`) — nunca se construyó
+el alta. Todo se cobra en persona (efectivo/transferencia) y siempre lo
+carga Cami o Fede, nunca el cliente. Agregado
+`admin.service.ts#recordPayment` (+ `deletePayment`) —
+`POST/DELETE /admin/beneficiaries/:id/payments` — con el mismo aviso
+informativo de tope de seña que ya estaba documentado para costeo pero
+nunca conectado (`RecordPaymentResult.advanceDepositWarning`, comparado
+contra `TenantCostConfig.advanceDepositCapPct`). UI:
+`BeneficiaryPaymentsSection.tsx` embebida en cada card de beneficiary del
+detalle de evento admin.
+
+**Reporte imprimible para cuando un cliente pide el detalle.** La privacidad
+titular/participante de un egreso (portal cliente) choca con poder rastrear
+quién debe — decisión cerrada: **el detalle por familia sigue siendo
+exclusivo de Cami/Fede** (ya lo era: `getEventDetailForAdmin` no aplica el
+recorte de privacidad, a diferencia del portal). Lo nuevo es una vista
+imprimible para cuando un cliente puntual lo pide:
+`GET /admin/beneficiaries/:id/report` +
+`/admin/beneficiarios/:beneficiaryId/reporte`
+(`BeneficiaryReportPage.tsx`) — ruta standalone sin Layout/SiteHeader (es un
+documento, no una pantalla de la app), con botón "Imprimir/Guardar PDF"
+(`window.print()`, sin generación de PDF del lado del servidor). Cami/Fede
+lo abren y se lo muestran/mandan a mano.
+
+**Costeo — cantidad de invitados sale de las tarjetas, no de un campo
+suelto.** `Event.minGuests` es `null` para QUINCE/BODA/EMPRESARIAL (Fase 1,
+a propósito), así que costeo caía en 0 invitados cada vez que se reabría el
+evento. Fix real en `computeEventCosting`: el default de `guestCount` ahora
+es la suma de `EventCard.quantity` de todos los beneficiaries del evento
+(dato que ya existe, cargado al crear el evento) vía
+`tx.eventCard.aggregate(...)` — el input manual en la UI lo sigue pudiendo
+pisar para simular otro escenario, pero ya no arranca en cero. Cuando de
+todos modos da 0 (evento sin tarjetas todavía), el costo neto acumulado
+sigue visible en una card aparte ("Costo neto acumulado hasta el momento")
+en vez de mostrar $0 en todo sin contexto — costo x100/costo tarjeta se
+ocultan con un aviso en vez de mostrar ceros engañosos.
+
+**Insumos: unidad de medida real en vez de "presentación" libre.** El campo
+`presentation` (texto libre, ej. "1L", "x 12") generaba confusión real sin
+aportar nada que no cubriera ya `productName`. Sacado del modelo
+(`EventSupplyLine`, migración `20260908160000_supply_unit`) y reemplazado
+por `unit` (enum `SupplyUnit`: `KG` / `LITROS` / `UNIDAD`, dropdown en el
+form) — cantidad + unidad alcanza para lo que Fede necesita cargar.
+
+**Calendario: click en un evento confirmado navega a su detalle**
+(`/admin/eventos/:id`); click en una consulta tentativa navega a
+`/admin/consultas` (no hay pantalla individual por lead todavía).
+
+**"Flecha" en los rubros de gasto de servicio**: viene tal cual del Excel
+real de Fede (`docs/03-reunion-cami-fede.md`) — no se sabe con precisión a
+qué servicio puntual se refiere en su operación, es un dato de su negocio,
+no algo inventado en esta sesión. Queda como pregunta abierta para
+confirmar con Fede/Cami — el rubro es editable desde
+`/admin/costeo/config` así que se puede renombrar o borrar sin tocar código
+si no aplica.

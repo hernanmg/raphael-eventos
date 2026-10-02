@@ -1,4 +1,4 @@
-import type { CardSummary } from '@raphael-eventos/shared';
+import type { CardSummary, PaymentSummary } from '@raphael-eventos/shared';
 import type { Prisma } from '@prisma/client';
 
 // Cálculo de tarjetas/saldo actualizado por IPC — usado tanto por el portal
@@ -14,11 +14,13 @@ export type CardRow = {
   baseValue: Prisma.Decimal;
   basePeriod: Date;
 };
+export type AllocationRow = { cardType: string; quantity: number };
 export type PaymentRow = {
   id: string;
   amount: Prisma.Decimal;
   paymentDate: Date;
   note: string | null;
+  allocations?: AllocationRow[];
 };
 
 function round2(n: number): number {
@@ -46,7 +48,17 @@ export function indexFactor(ipcRows: IpcRow[], basePeriod: Date): number {
   return Number(latest.indexValue) / Number(baseRow.indexValue);
 }
 
-export function serializeCard(card: CardRow, ipcRows: IpcRow[]): CardSummary {
+function quantityPaidByType(payments: PaymentRow[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const payment of payments) {
+    for (const allocation of payment.allocations ?? []) {
+      map.set(allocation.cardType, (map.get(allocation.cardType) ?? 0) + allocation.quantity);
+    }
+  }
+  return map;
+}
+
+export function serializeCard(card: CardRow, ipcRows: IpcRow[], quantityPaid = 0): CardSummary {
   const factor = indexFactor(ipcRows, card.basePeriod);
   const unitValue = round2(Number(card.baseValue) * factor);
   return {
@@ -55,6 +67,20 @@ export function serializeCard(card: CardRow, ipcRows: IpcRow[]): CardSummary {
     quantity: card.quantity,
     unitValue,
     subtotal: round2(unitValue * card.quantity),
+    quantityPaid: Math.min(quantityPaid, card.quantity),
+  };
+}
+
+export function serializePayment(payment: PaymentRow): PaymentSummary {
+  return {
+    id: payment.id,
+    amount: Number(payment.amount),
+    paymentDate: payment.paymentDate.toISOString(),
+    note: payment.note,
+    allocations: (payment.allocations ?? []).map((allocation) => ({
+      cardType: allocation.cardType as PaymentSummary['allocations'][number]['cardType'],
+      quantity: allocation.quantity,
+    })),
   };
 }
 
@@ -70,7 +96,10 @@ export function computeBeneficiaryFinancials(
   beneficiary: { cards: CardRow[]; payments: PaymentRow[] },
   ipcRows: IpcRow[],
 ): BeneficiaryFinancials {
-  const cards = beneficiary.cards.map((card) => serializeCard(card, ipcRows));
+  const paidByType = quantityPaidByType(beneficiary.payments);
+  const cards = beneficiary.cards.map((card) =>
+    serializeCard(card, ipcRows, paidByType.get(card.cardType) ?? 0),
+  );
   const totalValue = round2(cards.reduce((sum, card) => sum + card.subtotal, 0));
   const totalPaid = round2(
     beneficiary.payments.reduce((sum, payment) => sum + Number(payment.amount), 0),

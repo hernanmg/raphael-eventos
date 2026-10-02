@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { EventType } from '@raphael-eventos/shared';
-import { useDashboard } from '../../hooks/useAdmin';
+import { useDashboard, useIpcHistory } from '../../hooks/useAdmin';
+import { useSession } from '../../hooks/useSession';
 import { EVENT_TYPE_LABELS, formatDate } from '../../lib/format';
 
 type Filter = EventType | 'ALL' | null;
 
 export default function AdminDashboardPage() {
   const { data, isLoading, isError } = useDashboard();
+  const { data: session } = useSession();
+  const { data: ipcData } = useIpcHistory();
   const [filter, setFilter] = useState<Filter>(null);
 
   const visibleEvents = useMemo(() => {
@@ -51,7 +54,45 @@ export default function AdminDashboardPage() {
           <h1 className="font-serif text-3xl font-semibold">Panel admin</h1>
           <p className="mt-1 text-sm text-muted">Dashboard de eventos del salón.</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
+          <Link
+            to="/admin/clientes"
+            className="rounded-full border border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
+          >
+            Clientes
+          </Link>
+          <Link
+            to="/admin/consultas"
+            className="rounded-full border border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
+          >
+            Consultas
+          </Link>
+          <Link
+            to="/admin/calendario"
+            className="rounded-full border border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
+          >
+            Calendario
+          </Link>
+          <Link
+            to="/admin/personal"
+            className="rounded-full border border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
+          >
+            Personal
+          </Link>
+          <Link
+            to="/admin/recordatorios"
+            className="rounded-full border border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
+          >
+            Recordatorios
+          </Link>
+          {session?.tenantPlan === 'PRO' && (
+            <Link
+              to="/admin/costeo/config"
+              className="rounded-full border border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
+            >
+              Costeo
+            </Link>
+          )}
           <Link
             to="/admin/ipc"
             className="rounded-full border border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
@@ -66,6 +107,15 @@ export default function AdminDashboardPage() {
           </Link>
         </div>
       </div>
+
+      {ipcData?.staleness.stale && (
+        <Link
+          to="/admin/ipc"
+          className="mt-6 block rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 transition hover:border-amber-400"
+        >
+          {ipcData.staleness.message}
+        </Link>
+      )}
 
       {isLoading && <p className="mt-8 text-sm text-muted">Cargando…</p>}
       {isError && <p className="mt-8 text-sm text-red-600">No pudimos cargar el dashboard.</p>}

@@ -26,3 +26,6 @@ apps/web/.vite/
 
 # prisma
 apps/api/prisma/generated/
+
+# contratos digitales (dev): storage local, no Supabase Storage todavía
+apps/api/storage/

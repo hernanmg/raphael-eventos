@@ -1,6 +1,7 @@
 import type { Prisma, User } from '@prisma/client';
 import { withTenant } from '../../db/withTenant';
 import { hashPassword, verifyPassword } from '../../lib/password';
+import { prisma } from '../../db/prisma';
 
 export class EmailAlreadyRegisteredError extends Error {}
 export class InvalidCredentialsError extends Error {}
@@ -123,6 +124,20 @@ export async function verifyLogin(params: LoginParams): Promise<User> {
 
 export async function getUserById(tenantId: string, userId: string): Promise<User | null> {
   return withTenant(tenantId, (tx) => tx.user.findUnique({ where: { id: userId } }));
+}
+
+/**
+ * Plan del tenant actual, para que el frontend pueda gatear pantallas Pro
+ * (costeo, horas/liquidación de personal) sin depender de un segundo
+ * round-trip. `tenants` no lleva RLS (ver CLAUDE.md), no hace falta pasar
+ * por withTenant.
+ */
+export async function getTenantPlan(tenantId: string): Promise<'BASICA' | 'PRO'> {
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { plan: true },
+  });
+  return tenant?.plan ?? 'BASICA';
 }
 
 export function toPublicUser(user: User) {
