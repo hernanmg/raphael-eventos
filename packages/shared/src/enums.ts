@@ -7,7 +7,7 @@ import { z } from 'zod';
 export const PlanSchema = z.enum(['BASICA', 'PRO']);
 export type Plan = z.infer<typeof PlanSchema>;
 
-export const RoleSchema = z.enum(['ADMIN', 'VENDEDOR', 'CLIENTE']);
+export const RoleSchema = z.enum(['ADMIN', 'VENDEDOR', 'CLIENTE', 'PUERTA']);
 export type Role = z.infer<typeof RoleSchema>;
 
 export const EventTypeSchema = z.enum(['QUINCE', 'EGRESO', 'BODA', 'EMPRESARIAL']);

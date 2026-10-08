@@ -1,4 +1,6 @@
 import { Reveal } from '../../components/Reveal';
+import { useSalonProfile } from '../../hooks/useSalonProfile';
+import { instagramHandle } from '../../lib/salon';
 
 const PHOTOS = [
   { label: 'Foto 1', span: 'col-span-2 row-span-2' },
@@ -10,6 +12,7 @@ const PHOTOS = [
 ];
 
 export function GallerySection() {
+  const { data: salon } = useSalonProfile();
   return (
     <section id="galeria" className="py-24">
       <div className="mx-auto max-w-6xl px-7">
@@ -53,14 +56,16 @@ export function GallerySection() {
             <circle cx="17.2" cy="6.8" r="1" fill="currentColor" />
           </svg>
           Más fotos y videos en{' '}
-          <a
-            href="https://www.instagram.com/raphael.eventos/"
-            target="_blank"
-            rel="noopener"
-            className="border-b border-ink font-semibold text-ink"
-          >
-            @raphael.eventos
-          </a>
+          {salon?.instagramUrl && (
+            <a
+              href={salon.instagramUrl}
+              target="_blank"
+              rel="noopener"
+              className="border-b border-ink font-semibold text-ink"
+            >
+              {instagramHandle(salon.instagramUrl)}
+            </a>
+          )}
         </Reveal>
       </div>
     </section>

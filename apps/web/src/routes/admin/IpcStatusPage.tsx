@@ -5,7 +5,7 @@ import { CreateIpcEntrySchema, type CreateIpcEntryInput } from '@raphael-eventos
 import { useAddIpcEntry, useIpcHistory } from '../../hooks/useAdmin';
 import { ApiError } from '../../lib/api';
 import { FormField } from '../../components/FormField';
-import { formatDate } from '../../lib/format';
+import { formatDate, formatTimestamp } from '../../lib/format';
 
 export default function IpcStatusPage() {
   const { data, isLoading, isError } = useIpcHistory();
@@ -128,7 +128,7 @@ export default function IpcStatusPage() {
                     {entry.sourcePreviousValue}% → {entry.sourceLatestValue}%
                   </td>
                   <td className="px-4 py-2.5 text-muted">
-                    {formatDate(entry.fetchedAt)}
+                    {formatTimestamp(entry.fetchedAt)}
                     {entry.triggeredByName ? ` · ${entry.triggeredByName}` : ''}
                   </td>
                 </tr>

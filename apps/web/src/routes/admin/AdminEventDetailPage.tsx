@@ -4,6 +4,7 @@ import { useSession } from '../../hooks/useSession';
 import { CARD_TYPE_LABELS, EVENT_TYPE_LABELS, formatCurrency, formatDate } from '../../lib/format';
 import { EventCostingSection } from './costing/EventCostingSection';
 import { EventStaffSection } from './staff/EventStaffSection';
+import { AdminGuestsSection } from './guests/AdminGuestsSection';
 import { AdminContractSection } from './contracts/AdminContractSection';
 import { BeneficiaryPaymentsSection } from './payments/BeneficiaryPaymentsSection';
 
@@ -141,6 +142,11 @@ export default function AdminEventDetailPage() {
             ))}
           </div>
 
+          <AdminGuestsSection
+            eventId={data.event.id}
+            startTime={data.event.startTime}
+            photosUrl={data.event.photosUrl}
+          />
           <EventStaffSection eventId={data.event.id} />
           {session?.tenantPlan === 'PRO' && <EventCostingSection eventId={data.event.id} />}
           <AdminContractSection eventId={data.event.id} />

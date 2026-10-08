@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { Role } from '@prisma/client';
-import { getUserById } from '../modules/auth/auth.service';
+import { getUserById, userCanOperate } from '../modules/auth/auth.service';
 
 /**
  * A diferencia de requireAuth (que solo mira la cookie de sesión),
@@ -21,6 +21,18 @@ export function requireRole(...roles: Role[]) {
         res.status(403).json({ error: { message: 'No autorizado' } });
         return;
       }
+      // Contraseña temporal sin cambiar (Fase 3): nada más que /auth/change-password.
+      if (user.mustChangePassword) {
+        res.status(403).json({
+          error: { message: 'Tenés que cambiar tu contraseña temporal antes de seguir' },
+        });
+        return;
+      }
+      // Empleado PUERTA dado de baja: corta también sesiones ya abiertas.
+      if (!(await userCanOperate(req.tenantId, user))) {
+        res.status(403).json({ error: { message: 'No autorizado' } });
+        return;
+      }
       req.currentUser = user;
       next();
     } catch (err) {
@@ -28,3 +40,10 @@ export function requireRole(...roles: Role[]) {
     }
   };
 }
+
+/**
+ * Roles que pueden usar el portal cliente. PUERTA queda afuera de forma
+ * explícita (403) — no alcanza con que sus consultas devuelvan vacío por no
+ * tener EventAccount: eso es un efecto de los datos, no una regla.
+ */
+export const requirePortalAccess = () => requireRole('CLIENTE', 'ADMIN', 'VENDEDOR');

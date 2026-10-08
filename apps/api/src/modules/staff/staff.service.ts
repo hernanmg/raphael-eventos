@@ -8,8 +8,11 @@ import type {
 } from '@raphael-eventos/shared';
 import { withTenant } from '../../db/withTenant';
 import { computeAggregateFinancials } from '../../lib/financials';
+import { generateTemporaryPassword, hashPassword } from '../../lib/password';
 
 export class NotFoundError extends Error {}
+export class EmailInUseError extends Error {}
+export class DoorAccessNotAllowedError extends Error {}
 
 function firstOfMonth(dateLike: string): Date {
   const d = new Date(dateLike);
@@ -26,6 +29,8 @@ function monthRange(period: Date): { start: Date; end: Date } {
 function serializeEmployee(row: {
   id: string;
   fullName: string;
+  email: string | null;
+  userId: string | null;
   contractType: string;
   fixedMonthlyAmount: Prisma.Decimal;
   variableType: string;
@@ -35,6 +40,8 @@ function serializeEmployee(row: {
   return {
     id: row.id,
     fullName: row.fullName,
+    email: row.email,
+    hasDoorAccess: row.userId !== null,
     contractType: row.contractType,
     fixedMonthlyAmount: Number(row.fixedMonthlyAmount),
     variableType: row.variableType,
@@ -57,9 +64,79 @@ export async function createEmployee(tenantId: string, input: EmployeeInput) {
 }
 
 export async function updateEmployee(tenantId: string, id: string, input: EmployeeInput) {
-  return withTenant(tenantId, async (tx) =>
-    serializeEmployee(await tx.employee.update({ where: { id }, data: input })),
-  );
+  return withTenant(tenantId, async (tx) => {
+    const current = await tx.employee.findUnique({ where: { id } });
+    if (!current || current.tenantId !== tenantId) throw new NotFoundError();
+
+    // El email del empleado ES su login de puerta: si ya tiene acceso, se
+    // mantiene sincronizado en su User.
+    if (current.userId && current.email !== input.email) {
+      await assertEmailFree(tx, tenantId, input.email, current.userId);
+      await tx.user.update({
+        where: { id: current.userId },
+        data: { email: input.email, fullName: input.fullName },
+      });
+    }
+
+    return serializeEmployee(await tx.employee.update({ where: { id }, data: input }));
+  });
+}
+
+async function assertEmailFree(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  email: string,
+  exceptUserId: string | null,
+) {
+  const other = await tx.user.findUnique({ where: { tenantId_email: { tenantId, email } } });
+  if (other && other.id !== exceptUserId) throw new EmailInUseError();
+}
+
+/**
+ * Da acceso de puerta (rol PUERTA, check-in de invitados — Fase 3) a un
+ * empleado, o le resetea la contraseña si ya lo tenía. En ambos casos genera
+ * una contraseña temporal que se devuelve UNA vez (no se guarda en claro) y
+ * deja al usuario con mustChangePassword: el backend no le permite nada más
+ * hasta cambiarla. Revocar el acceso = dar de baja al empleado (active).
+ */
+export async function grantDoorAccess(tenantId: string, employeeId: string) {
+  return withTenant(tenantId, async (tx) => {
+    const employee = await tx.employee.findUnique({ where: { id: employeeId } });
+    if (!employee || employee.tenantId !== tenantId) throw new NotFoundError();
+    if (!employee.active) {
+      throw new DoorAccessNotAllowedError('El empleado está dado de baja');
+    }
+    if (!employee.email) {
+      throw new DoorAccessNotAllowedError('Cargale un email al empleado antes de darle acceso');
+    }
+
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+
+    if (employee.userId) {
+      await tx.user.update({
+        where: { id: employee.userId },
+        data: { passwordHash, mustChangePassword: true },
+      });
+    } else {
+      // Nunca reutiliza una cuenta existente (ej. un cliente con ese email):
+      // mezclaría el acceso de puerta con el portal de esa persona.
+      await assertEmailFree(tx, tenantId, employee.email, null);
+      const user = await tx.user.create({
+        data: {
+          tenantId,
+          email: employee.email,
+          passwordHash,
+          fullName: employee.fullName,
+          role: 'PUERTA',
+          mustChangePassword: true,
+        },
+      });
+      await tx.employee.update({ where: { id: employee.id }, data: { userId: user.id } });
+    }
+
+    return { email: employee.email, temporaryPassword };
+  });
 }
 
 function serializeAssignment(row: {

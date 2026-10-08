@@ -7,6 +7,7 @@ import { api, ApiError } from '../lib/api';
 import { AuthCard } from '../components/AuthCard';
 import { FormField } from '../components/FormField';
 import { SESSION_QUERY_KEY } from '../hooks/useSession';
+import { homePathFor } from '../lib/homePath';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -23,7 +24,7 @@ export default function LoginPage() {
     mutationFn: api.login,
     onSuccess: (data) => {
       queryClient.setQueryData(SESSION_QUERY_KEY, data);
-      navigate('/portal');
+      navigate(homePathFor(data.user));
     },
     onError: (err) => {
       const message = err instanceof ApiError ? err.message : 'No pudimos iniciar sesión';

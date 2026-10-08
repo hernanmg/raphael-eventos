@@ -17,15 +17,31 @@ export function formatCurrency(amount: number): string {
   return currencyFormatter.format(amount);
 }
 
+// Fechas de calendario (eventDate, paymentDate, períodos, fecha tentativa):
+// el backend las guarda como medianoche UTC del día elegido, así que se
+// formatean en UTC. En la zona del navegador (Argentina, UTC-3) "2026-12-12
+// 00:00Z" caía el 11 — bug real: toda fecha de evento se mostraba un día antes.
 const dateFormatter = new Intl.DateTimeFormat('es-AR', {
   day: 'numeric',
   month: 'long',
   year: 'numeric',
+  timeZone: 'UTC',
 });
 
 export function formatDate(iso: string | null): string {
   if (!iso) return 'Fecha a confirmar';
   return dateFormatter.format(new Date(iso));
+}
+
+// Instantes reales (createdAt, uploadedAt, sentAt...): en la hora local.
+const timestampFormatter = new Intl.DateTimeFormat('es-AR', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+});
+
+export function formatTimestamp(iso: string): string {
+  return timestampFormatter.format(new Date(iso));
 }
 
 export const EVENT_TYPE_LABELS: Record<EventType, string> = {

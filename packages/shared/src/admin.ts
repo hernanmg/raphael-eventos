@@ -151,6 +151,10 @@ export interface AdminEventDetail {
   type: EventType;
   name: string;
   eventDate: string | null;
+  /** "HH:mm" — micrositio de invitados (Fase 3). */
+  startTime: string | null;
+  /** Link externo del fotógrafo — micrositio de invitados (Fase 3). */
+  photosUrl: string | null;
   status: EventStatus;
   titularName: string | null;
   titularEmail: string | null;

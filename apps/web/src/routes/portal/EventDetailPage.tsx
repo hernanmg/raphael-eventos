@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router-dom';
 import type { EventDetail } from '@raphael-eventos/shared';
 import { useEventDetail } from '../../hooks/useEvents';
 import { PortalContractLink } from './PortalContractLink';
+import { PortalGuestsSection } from './PortalGuestsSection';
 import {
   ACCOUNT_ROLE_LABELS,
   CARD_TYPE_LABELS,
@@ -50,6 +51,8 @@ export default function EventDetailPage() {
               minGuests={data.event.minGuests}
             />
           )}
+
+          <PortalGuestsSection eventId={data.event.eventId} />
         </div>
       )}
     </main>
@@ -197,11 +200,13 @@ function AggregateEventDetail({
       />
 
       <div className="mt-6 rounded-2xl border border-line bg-paper p-5">
-        <p className="text-xs uppercase tracking-wide text-muted">Invitados</p>
-        <p className="mt-1 text-lg font-semibold text-ink">
-          {aggregate.beneficiaryCount}
-          {minGuests !== null ? ` de un mínimo de ${minGuests}` : ''}
-        </p>
+        {/* Cantidad de alumnos (beneficiaries) — el avance real de invitados
+            confirmados vive en PortalGuestsSection. */}
+        <p className="text-xs uppercase tracking-wide text-muted">Alumnos</p>
+        <p className="mt-1 text-lg font-semibold text-ink">{aggregate.beneficiaryCount}</p>
+        {minGuests !== null && (
+          <p className="mt-1 text-xs text-muted">Mínimo de invitados contratado: {minGuests}</p>
+        )}
       </div>
     </>
   );

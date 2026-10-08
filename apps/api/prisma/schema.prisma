@@ -23,6 +23,10 @@ enum Role {
   ADMIN
   VENDEDOR
   CLIENTE
+  /// Fase 3: empleado con acceso solo al check-in de invitados de los eventos
+  /// donde está asignado (EventStaffAssignment). Se crea desde
+  /// /admin/personal, nunca por /registro.
+  PUERTA
 }
 
 enum EventType {
@@ -96,11 +100,43 @@ enum SupplyUnit {
   UNIDAD
 }
 
+/// Fase 3. Una baja de invitado lo pasa a CANCELADO (no se borra): el QR deja
+/// de servir y se conserva el historial de check-in.
+enum GuestStatus {
+  CONFIRMADO
+  CANCELADO
+}
+
+enum GuestSource {
+  AUTOGESTION
+  TITULAR
+  ADMIN
+}
+
+/// Sin estado "duplicado": un reingreso es ADMITIDO con `note` obligatoria
+/// (verificación manual) cuando ya existe un ADMITIDO previo para el invitado.
+enum CheckInResult {
+  ADMITIDO
+  RECHAZADO
+}
+
 model Tenant {
   id        String   @id @default(cuid())
   name      String
   slug      String   @unique
   plan      Plan     @default(BASICA)
+
+  /// Perfil público del salón (Fase 3) — antes hardcodeado en la landing.
+  /// Lo leen la landing y el micrositio de invitados. `tenants` no tiene RLS
+  /// y app_user solo tiene SELECT: se cargan por seed/operación.
+  whatsappNumber String?
+  instagramUrl   String?
+  address        String?
+  mapsUrl        String?
+  /// Días antes del evento en que se cierra la confirmación autogestionada
+  /// por link. Las excepciones las carga el titular/admin.
+  rsvpCloseDaysBefore Int @default(2)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -123,6 +159,10 @@ model User {
   fullName        String
   phone           String?
   emailVerifiedAt DateTime?
+  /// true mientras el usuario tenga una contraseña temporal generada por el
+  /// admin (alta de acceso de un empleado PUERTA o reseteo) — el backend le
+  /// niega todo salvo cambiarla.
+  mustChangePassword Boolean @default(false)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -132,6 +172,9 @@ model User {
   recordedPayments     Payment[]          @relation("PaymentRecordedBy")
   triggeredIpcFetches  IpcIndexValue[]    @relation("IpcTriggeredBy")
   authTokens           AuthToken[]
+  createdGuests        EventGuest[]       @relation("GuestCreatedBy")
+  guestCheckIns        GuestCheckIn[]     @relation("CheckInScannedBy")
+  employee             Employee?
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -155,10 +198,15 @@ model Event {
   /// recordatorios de WhatsApp (ver módulo de recordatorios). No existía en
   /// Fase 1 porque no hacía falta para nada del portal/panel hasta ahora.
   titularPhone String?
-  /// Mínimo de invitados contratado. Hoy solo se muestra el valor cargado por
-  /// el admin, sin lógica de avance automático (eso depende del rol invitado
-  /// + RSVP, que es Fase 3).
+  /// Mínimo de invitados contratado. El avance se calcula en runtime contra
+  /// COUNT(EventGuest CONFIRMADO) — no hay contador persistido (Fase 3).
   minGuests    Int?
+  /// Hora de inicio "HH:mm" para la cuenta regresiva del micrositio
+  /// (eventDate es solo fecha).
+  startTime    String?
+  /// Link externo de fotos que pasa el fotógrafo (Google Fotos u otro) — lo
+  /// carga el admin, se muestra en el micrositio. Sin upload nativo.
+  photosUrl    String?
   createdById  String?
   createdBy    User?       @relation("EventCreatedBy", fields: [createdById], references: [id])
   createdAt    DateTime    @default(now())
@@ -174,6 +222,8 @@ model Event {
   commissionAdvances EmployeeCommissionAdvance[]
   convertedFromLeads Lead[]
   contract          EventContract?
+  guests            EventGuest[]
+  guestCheckIns     GuestCheckIn[]
 
   @@index([tenantId])
   @@index([tenantId, titularEmail])
@@ -199,6 +249,12 @@ model EventBeneficiary {
   contactEmail String?
   contactPhone String?
 
+  /// Token del link de invitación (`/i/:inviteToken`, Fase 3) — por
+  /// beneficiary y no por evento: en egreso cada familia comparte el suyo y el
+  /// invitado queda asociado al alumno sin exponer la lista de alumnos.
+  /// Se genera la primera vez que se comparte.
+  inviteToken String? @unique
+
   accountId String?
   account   User?   @relation("BeneficiaryAccount", fields: [accountId], references: [id])
 
@@ -209,6 +265,7 @@ model EventBeneficiary {
   payments      Payment[]
   eventAccounts EventAccount[]
   reminderLogs  ReminderLog[]
+  guests        EventGuest[]
 
   @@index([tenantId])
   @@index([tenantId, contactEmail])
@@ -492,6 +549,12 @@ model Employee {
   tenantId String
 
   fullName           String
+  /// Obligatorio desde Fase 3 (validado en EmployeeInputSchema). Nullable en
+  /// la base solo por las filas cargadas antes de que existiera el campo.
+  email              String?
+  /// Login con rol PUERTA para el check-in (Fase 3). null = sin acceso.
+  userId             String?              @unique
+  user               User?                @relation(fields: [userId], references: [id])
   contractType       EmployeeContractType
   fixedMonthlyAmount Decimal              @db.Decimal(12, 2) @default(0)
   /// Monto fijo por evento si es MONTO_POR_EVENTO, o % si es COMISION_PCT.
@@ -707,6 +770,80 @@ model ReminderLog {
   @@index([tenantId])
   @@index([tenantId, beneficiaryId])
   @@map("reminder_logs")
+}
+
+/// Invitado de un evento (Fase 3). Registro propio, NO es un User del sistema
+/// de auth. Se crea CONFIRMADO: por autogestión desde el link de invitación o
+/// cargado por el titular/admin.
+model EventGuest {
+  id       String @id @default(cuid())
+  tenantId String
+
+  eventId       String
+  event         Event             @relation(fields: [eventId], references: [id])
+  /// Familia/alumno al que pertenece (egreso). null = invitado general del evento.
+  beneficiaryId String?
+  beneficiary   EventBeneficiary? @relation(fields: [beneficiaryId], references: [id])
+
+  fullName String
+  phone    String?
+  email    String?
+
+  status GuestStatus @default(CONFIRMADO)
+  source GuestSource
+  /// "Entrada después de las 12": invitado cargado igual que el resto, con su
+  /// propio QR — solo cambia la etiqueta que ve el personal de la puerta.
+  lateEntry Boolean @default(false)
+
+  /// Lo que codifica el QR (aleatorio, no adivinable). El QR se dibuja en el
+  /// navegador, no se guarda como imagen.
+  qrToken   String @unique
+  /// Código corto para ingreso manual en la puerta, único por evento.
+  entryCode String
+
+  createdById String?
+  createdBy   User?   @relation("GuestCreatedBy", fields: [createdById], references: [id])
+
+  confirmedAt DateTime  @default(now())
+  cancelledAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  checkIns GuestCheckIn[]
+
+  @@unique([eventId, entryCode])
+  @@index([tenantId])
+  @@index([tenantId, eventId])
+  @@index([tenantId, beneficiaryId])
+  @@map("event_guests")
+}
+
+/// Un registro por decisión explícita del personal de la puerta (admitir o
+/// rechazar) — escanear/buscar no escribe nada, así los reintentos de lectura
+/// nunca cuentan como duplicado.
+model GuestCheckIn {
+  id       String @id @default(cuid())
+  tenantId String
+
+  eventId String
+  event   Event      @relation(fields: [eventId], references: [id])
+  guestId String
+  guest   EventGuest @relation(fields: [guestId], references: [id])
+
+  scannedById String
+  scannedBy   User   @relation("CheckInScannedBy", fields: [scannedById], references: [id])
+
+  result CheckInResult
+  /// Obligatoria si es un reingreso (ya había un ADMITIDO previo): ej.
+  /// "reingreso verificado con DNI", "confirmado con el titular".
+  note   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([tenantId, eventId])
+  @@index([tenantId, guestId])
+  @@map("guest_checkins")
 }
 
 // NOTA sobre la tabla "session" (express-session / connect-pg-simple): su DDL

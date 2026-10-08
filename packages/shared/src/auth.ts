@@ -19,10 +19,26 @@ export const LoginSchema = z.object({
 });
 export type LoginInput = z.infer<typeof LoginSchema>;
 
+/**
+ * Cambio de contraseña del usuario logueado. Obligatorio en el primer
+ * ingreso con una contraseña temporal (`mustChangePassword`, Fase 3).
+ */
+export const ChangePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Ingresá tu contraseña actual'),
+    newPassword: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres').max(72),
+  })
+  .refine((v) => v.newPassword !== v.currentPassword, {
+    message: 'La nueva contraseña tiene que ser distinta de la actual',
+    path: ['newPassword'],
+  });
+export type ChangePasswordInput = z.infer<typeof ChangePasswordSchema>;
+
 export const PublicUserSchema = z.object({
   id: z.string(),
   email: z.string(),
   fullName: z.string(),
   role: RoleSchema,
+  mustChangePassword: z.boolean(),
 });
 export type PublicUser = z.infer<typeof PublicUserSchema>;

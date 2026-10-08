@@ -18,7 +18,13 @@ export default function AvailabilityCalendarPage() {
   });
 
   const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
-  const { data, isLoading } = useCalendar(monthStart.toISOString(), monthEnd.toISOString());
+  // Límites del mes en UTC: las fechas de evento/consulta se guardan como
+  // medianoche UTC. Con toISOString() de una medianoche local (03:00Z en
+  // Argentina) un evento del día 1 quedaba fuera del rango.
+  const { data, isLoading } = useCalendar(
+    `${toISODate(monthStart)}T00:00:00.000Z`,
+    `${toISODate(monthEnd)}T00:00:00.000Z`,
+  );
 
   const entriesByDate = useMemo(() => {
     const map = new Map<string, CalendarEntry[]>();

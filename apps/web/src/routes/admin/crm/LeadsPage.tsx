@@ -2,7 +2,12 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { LeadStatus, LeadSummary } from '@raphael-eventos/shared';
 import { useLeads, useUpdateLead } from '../../../hooks/useCrm';
-import { EVENT_TYPE_LABELS, LEAD_STATUS_LABELS, formatDate } from '../../../lib/format';
+import {
+  EVENT_TYPE_LABELS,
+  LEAD_STATUS_LABELS,
+  formatDate,
+  formatTimestamp,
+} from '../../../lib/format';
 
 const STATUS_ORDER: LeadStatus[] = ['NUEVO', 'CONTACTADO', 'CON_SENA', 'GANADO', 'PERDIDO'];
 
@@ -117,7 +122,7 @@ function LeadCard({ lead }: { lead: LeadSummary }) {
             {lead.phone}
             {lead.interestedDate && ` · fecha tentativa ${formatDate(lead.interestedDate)}`}
             {' · '}
-            {formatDate(lead.createdAt)}
+            {formatTimestamp(lead.createdAt)}
           </p>
           {lead.message && <p className="mt-1 text-sm text-ink/80">{lead.message}</p>}
         </div>

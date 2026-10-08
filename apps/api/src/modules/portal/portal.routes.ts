@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { requireAuth } from '../../middleware/requireAuth';
+import { requirePortalAccess } from '../../middleware/requireRole';
 import { EventNotAccessibleError, getUserEventDetail, listUserEvents } from './portal.service';
 
 export const portalRouter = Router();
 
-portalRouter.use(requireAuth);
+portalRouter.use(requirePortalAccess());
 
 portalRouter.get('/events', async (req, res, next) => {
   try {

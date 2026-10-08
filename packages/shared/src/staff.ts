@@ -8,6 +8,8 @@ import { optionalText } from './zodHelpers';
 
 export const EmployeeInputSchema = z.object({
   fullName: z.string().trim().min(2, 'Ingresá el nombre').max(160),
+  /** Obligatorio (Fase 3): es el login del empleado si se le da acceso a la puerta. */
+  email: z.string().trim().toLowerCase().email('Email inválido'),
   contractType: EmployeeContractTypeSchema,
   fixedMonthlyAmount: z.coerce.number().min(0).max(1_000_000_000).default(0),
   variableType: EmployeeVariableTypeSchema.default('NINGUNO'),
@@ -47,11 +49,25 @@ export type CommissionAdvanceInput = z.infer<typeof CommissionAdvanceInputSchema
 export interface EmployeeSummary {
   id: string;
   fullName: string;
+  /** null solo en empleados cargados antes de que el email fuera obligatorio. */
+  email: string | null;
   contractType: EmployeeContractType;
   fixedMonthlyAmount: number;
   variableType: EmployeeVariableType;
   variableValue: number;
   active: boolean;
+  /** Tiene login PUERTA para el check-in de invitados (Fase 3). */
+  hasDoorAccess: boolean;
+}
+
+/**
+ * Respuesta al dar acceso a la puerta o resetearlo: la contraseña temporal se
+ * devuelve UNA sola vez, en texto plano, para que el admin se la pase al
+ * empleado (en persona o por email). No se guarda en ningún lado.
+ */
+export interface DoorAccessResult {
+  email: string;
+  temporaryPassword: string;
 }
 
 export interface EventStaffAssignmentSummary {

@@ -10,10 +10,13 @@ import { requireRole } from '../../middleware/requireRole';
 import { requirePlan } from '../../middleware/requirePlan';
 import { parseBody } from '../../lib/validate';
 import {
+  DoorAccessNotAllowedError,
+  EmailInUseError,
   NotFoundError,
   assignStaff,
   computePayrollPeriod,
   createEmployee,
+  grantDoorAccess,
   listCommissionAdvances,
   listEmployees,
   listEventStaffAssignments,
@@ -56,6 +59,37 @@ staffRouter.put('/employees/:id', async (req, res, next) => {
     if (!input) return;
     res.json({ employee: await updateEmployee(req.tenantId, req.params.id, input) });
   } catch (err) {
+    if (err instanceof NotFoundError) {
+      res.status(404).json({ error: { message: 'Empleado no encontrado' } });
+      return;
+    }
+    if (err instanceof EmailInUseError) {
+      res.status(409).json({ error: { message: 'Ese email ya lo usa otra cuenta' } });
+      return;
+    }
+    next(err);
+  }
+});
+
+// Alta de acceso de puerta o reseteo de su contraseña temporal (Fase 3).
+staffRouter.post('/employees/:id/door-access', async (req, res, next) => {
+  try {
+    res.status(201).json(await grantDoorAccess(req.tenantId, req.params.id));
+  } catch (err) {
+    if (err instanceof NotFoundError) {
+      res.status(404).json({ error: { message: 'Empleado no encontrado' } });
+      return;
+    }
+    if (err instanceof DoorAccessNotAllowedError) {
+      res.status(400).json({ error: { message: err.message } });
+      return;
+    }
+    if (err instanceof EmailInUseError) {
+      res.status(409).json({
+        error: { message: 'Ya existe una cuenta con ese email (por ejemplo, de un cliente)' },
+      });
+      return;
+    }
     next(err);
   }
 });

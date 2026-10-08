@@ -17,13 +17,12 @@ De las 4 fases descritas en `docs/01-propuesta-plataforma-digital.md`, la
   según el tipo de evento), valor actualizado por IPC.
 - Panel admin básico: dashboard, alta de eventos, vista de estado del IPC.
 
-Ahora en construcción la **Fase 2 ("Cobrar y vender mejor")** — ver las
-secciones de abajo para el detalle de cada módulo y su estado real. Sigue
-**explícitamente fuera de alcance** (no implementar sin preguntar antes,
-aunque esté documentado en `docs/`): directorio de proveedores, rol invitado
-
-- QR, cualquier cosa de pagos/facturación real (gateway de cobro). Esos son
-  Fase 3/4, no se adelantan sin que el usuario lo pida.
+La **Fase 2 ("Cobrar y vender mejor")** y la **Fase 3 (Invitados)** están
+completas — ver las secciones de abajo (la de Fase 3 está al final de este
+archivo). Sigue **explícitamente fuera de alcance** (no implementar
+sin preguntar antes, aunque esté documentado en `docs/`): directorio de
+proveedores, mural de fotos nativo / playlist colaborativa, cualquier cosa
+de pagos/facturación real (gateway de cobro).
 
 ## Fase 2 — costeo y personal (implementado)
 
@@ -720,6 +719,15 @@ propósito no está en el schema de Prisma) y la librería `prompts` no tiene
 TTY para mostrarlo. **Usar siempre `prisma migrate deploy` para aplicar
 migraciones ya generadas** — no prompta nunca, es exactamente para esto.
 
+**Gotcha nuevo (Fase 3): `migrate dev --create-only` tampoco anda ya** —
+falla con "environment is non-interactive" porque detecta el drift de
+`session` y quiere confirmar su `DROP`. Alternativa usada para
+`20261002120000_invitados`: `npx prisma migrate diff
+--from-schema-datasource prisma/schema.prisma --to-schema-datamodel
+prisma/schema.prisma --script > prisma/migrations/<ts>_<nombre>/migration.sql`,
+**borrar a mano el `DROP TABLE "session"`** del SQL generado, agregar el
+bloque de RLS y aplicar con `migrate deploy`.
+
 **Gotcha general de Windows, no solo de Prisma:** matar el proceso que lanzó un
 server (`tsx watch`, `vite`, el wrapper `npm run dev`) no mata sus hijos —
 quedan corriendo huérfanos y siguen ocupando el puerto. Pasó también
@@ -958,3 +966,264 @@ no algo inventado en esta sesión. Queda como pregunta abierta para
 confirmar con Fede/Cami — el rubro es editable desde
 `/admin/costeo/config` así que se puede renombrar o borrar sin tocar código
 si no aplica.
+
+## Fase 3 — Invitados (implementada)
+
+Rol invitado con QR — Plan **Básica** (`docs/04-arquitectura-y-costos.md`),
+sin gating por plan en esta fase. Fuentes: `docs/03-reunion-cami-fede.md`
+(rol invitado, ingreso después de las 12, fotos/playlist simples) y
+`docs/04-arquitectura-y-costos.md` punto 2 (QR individual por invitado,
+generado al confirmar — decisión cerrada).
+
+**Modelo** (migración `20261002120000_invitados`, con RLS):
+
+- `EventGuest` — registro propio, **no es un `User`** del sistema de auth.
+  `beneficiaryId` opcional (familia/alumno en egreso; null = invitado
+  general). `status` `CONFIRMADO`/`CANCELADO` (una baja cancela, no borra: el
+  QR deja de servir y queda el historial de check-in). `source`
+  `AUTOGESTION`/`TITULAR`/`ADMIN`. `qrToken` (aleatorio, único — es lo que
+  codifica el QR, que se dibuja en el navegador, nunca se guarda como imagen)
+  + `entryCode` corto único por evento para tipear a mano en la puerta.
+  `lateEntry` (ver punto 3 abajo).
+- `GuestCheckIn` — un registro por decisión explícita del personal de la
+  puerta (`ADMITIDO`/`RECHAZADO` + `note`), no un flag en el invitado.
+- `EventBeneficiary.inviteToken` — link de invitación **por beneficiary, no
+  por evento** (`/i/:inviteToken`): en egreso cada familia comparte el suyo y
+  el invitado queda asociado a su alumno sin exponer públicamente la lista de
+  alumnos. En QUINCE/BODA/EMPRESARIAL hay un único beneficiary → en la
+  práctica es un link por evento. El micrositio y el RSVP son la misma página.
+- `Event.startTime` (`"HH:mm"`, para la cuenta regresiva — `eventDate` es
+  solo fecha) y `Event.photosUrl` (link externo del fotógrafo, lo carga el
+  admin).
+- `Tenant.whatsappNumber/instagramUrl/address/mapsUrl` — perfil público del
+  salón, hoy hardcodeado en `LandingFooter.tsx`/`QuoteForm.tsx`/
+  `LandingHeader.tsx`/`GallerySection.tsx`. **Mover la landing a leer de acá
+  en esta misma fase**, antes de que el micrositio repita el hardcode.
+  `tenants` no tiene RLS y `app_user` solo tiene SELECT: se cargan por seed.
+- `Tenant.rsvpCloseDaysBefore` (default 2): la confirmación autogestionada
+  por link se cierra N días antes del evento; las excepciones las coordina y
+  carga el titular (o el admin).
+
+**Reglas de negocio:**
+
+- **Sin contador paralelo de invitados**: el avance es
+  `COUNT(EventGuest WHERE status = CONFIRMADO)` en runtime, comparado contra
+  `Event.minGuests` — o, cuando es null (QUINCE/BODA/EMPRESARIAL), contra la
+  suma de `EventCard.quantity` del evento (mismo default que ya usa
+  `computeEventCosting`).
+- Invitados cargados por el titular (portal, scope "own") o el admin quedan
+  `CONFIRMADO` con QR al instante; el titular se los reenvía.
+- Endpoint público de RSVP detrás de `express-rate-limit` (mismo criterio que
+  `POST /leads`). El micrositio nunca muestra datos financieros ni del
+  titular.
+- Fotos: solo `photosUrl` externo. Nada de upload nativo ni Spotify/playlist
+  (mejora futura explícita, no meter sin avisar).
+
+**Puntos abiertos — respondidos por el cliente (2026-10-02):**
+
+1. **Acceso al check-in: empleados del módulo de personal** (la responsable
+   del salón u otro empleado — Cami/Fede casi nunca están en la puerta), con
+   un rol nuevo acotado `PUERTA`, limitado al check-in de los eventos donde
+   ese empleado tiene un `EventStaffAssignment`. **Implementado** (migración
+   `20261002130000_acceso_puerta`, ver "Acceso de puerta" abajo).
+2. **Doble escaneo — dos casos distintos:**
+   - Error de lectura (cámara, señal) → escanear o buscar es una consulta de
+     solo lectura; solo escribe un `GuestCheckIn` el botón explícito de
+     admitir/rechazar. Reintentar nunca cuenta como duplicado. Si el QR no
+     lee, el personal busca al invitado por nombre o `entryCode` y lo admite
+     a mano.
+   - Reingreso real (ya existe un `ADMITIDO` previo para ese invitado) → se
+     permite con alerta grande ("ya ingresó a las 22:14"), **pero no con un
+     solo toque**: requiere verificación manual (DNI o confirmación con el
+     titular) y `note` es **obligatoria** en ese caso (validado en el
+     backend, 400 sin nota). Si no se puede verificar, se registra
+     `RECHAZADO`. Sin enum de "duplicado": `ADMITIDO` + nota alcanza.
+3. **Ingreso después de las 12**: no es un ingreso improvisado sin QR — es
+   un invitado cargado de antemano por el titular por el flujo normal, con
+   su propio QR, marcado `lateEntry = true`, que se ve como etiqueta "Entrada
+   después de las 12" en la pantalla de check-in. `GuestCheckIn.guestId` es
+   obligatorio (no hay ingreso sin invitado).
+
+**Pantallas previstas**: `/i/:inviteToken` (micrositio + RSVP, pública),
+`/q/:qrToken` (mi QR, pública), sección "Invitados" en `EventDetailPage` del
+portal (alta/baja, link + QR del link para compartir), invitados + conteo
+vs. mínimo + `photosUrl`/`startTime` en `AdminEventDetailPage`, y
+`/checkin/:eventId` (escáner con cámara vía librería JS — `BarcodeDetector`
+no existe en iOS Safari — + ingreso manual; la cámara exige HTTPS en el
+deploy real).
+
+### Acceso de puerta para empleados (implementado)
+
+Decisiones del usuario: **todo empleado tiene email obligatorio**, y el
+acceso se da con una **contraseña temporal generada** que el admin le pasa
+en persona o por email, con **cambio obligatorio al primer ingreso**.
+
+- Schema: `Employee.email` (obligatorio en `EmployeeInputSchema`; nullable
+  en la base solo por filas anteriores — la UI marca "Sin email — es
+  obligatorio" y no deja modificarlas hasta cargarlo), `Employee.userId`
+  (`@unique`, null = sin acceso), `Role.PUERTA`, `User.mustChangePassword`.
+- `POST /admin/employees/:id/door-access` (`staff.service.ts#grantDoorAccess`):
+  crea el `User` PUERTA (o, si ya existía, le resetea la contraseña) con una
+  contraseña de 12 caracteres sin ambiguos (`lib/password.ts#generateTemporaryPassword`,
+  `crypto.randomInt`), devuelta **una sola vez** en la respuesta — nunca se
+  guarda en claro. Nunca reutiliza un `User` existente con ese email (ej. un
+  cliente): 409. Editar el email de un empleado con acceso lo sincroniza en
+  su `User`.
+- **No hay envío de email desde el sistema** (no hay Resend/SMTP
+  configurado): "Enviar por email" en `/admin/personal` es un `mailto:` con
+  el mensaje armado (link de login, email, contraseña temporal).
+- **Revocar acceso = dar de baja al empleado** (`active = false`): el login
+  lo rechaza con el mismo error genérico y `requireRole` corta también las
+  sesiones ya abiertas (`auth.service.ts#userCanOperate`).
+- `requireRole` niega todo (403) mientras `mustChangePassword` sea true;
+  `POST /auth/change-password` (detrás del mismo `loginLimiter` que el
+  login) lo limpia. Frontend: `lib/homePath.ts#homePathFor` decide el
+  destino post-login (`/cambiar-contrasena` → `/checkin` para PUERTA →
+  `/portal`), `RequireAuth` acepta `roles` y fuerza el cambio de contraseña
+  desde cualquier ruta.
+- `GET /checkin/events` (`modules/checkin/`, `requireRole('ADMIN',
+  'VENDEDOR', 'PUERTA')`): PUERTA ve solo sus eventos asignados, el staff
+  todos; desde ayer en adelante (un evento que cruza la medianoche sigue
+  apareciendo). `/checkin` hoy es solo esa lista — la validación de QR por
+  evento es la siguiente pieza.
+- **El portal rechaza PUERTA explícitamente** (`requirePortalAccess()` en
+  `middleware/requireRole.ts` = `requireRole('CLIENTE','ADMIN','VENDEDOR')`,
+  aplicado a `portalRouter` y `contractsPortalRouter`): 403, no "lista
+  vacía porque no tiene `EventAccount`" — eso era un efecto de los datos, no
+  una regla (pedido explícito del usuario, mismo criterio que RLS como capa
+  extra). Toda ruta nueva de portal tiene que usar este guard, no
+  `requireAuth` solo.
+- **Rate limit de login pensado para la puerta de un evento** (pedido
+  explícito: un empleado trabado la noche del evento no puede depender de
+  que alguien reinicie la API): ventana fija de 15 min que se libera sola
+  (`RateLimit-Reset` en la respuesta), **solo cuentan los fallos**
+  (`skipSuccessfulRequests`), clave por IP + email (10 fallos — el que se
+  equivoca se traba solo a sí mismo, no a sus compañeros en el mismo wifi)
+  + un freno por IP más holgado (50 fallos, contra probar muchas cuentas).
+  Change-password tiene su propio limitador por usuario. Store en memoria:
+  alcanza con una instancia; con más de una, pasar a un store compartido.
+- **`TRUST_PROXY`** (env, default 0; 1 en Railway/Render): sin esto, detrás
+  del proxy del deploy `req.ip` sería la IP del proxy (todos los usuarios
+  compartiendo un solo contador de rate limit) y `req.secure` daría false,
+  así que la cookie de sesión `secure` no se setearía en producción.
+  **Pendiente de deploy, no resuelto acá:** con web en Vercel y API en
+  Railway en dominios distintos, `sameSite: 'lax'` no manda la cookie en los
+  `fetch` cross-site — usar subdominios del mismo dominio (ej.
+  `app.` + `api.raphaeleventos.com`) o revisar `sameSite` al configurar el
+  deploy.
+
+Verificado con curl + Playwright: alta de acceso de Adri y Pao, rechazo sin
+email (400) y con email de un cliente existente (409), login con la
+temporal → 403 en todo salvo cambiarla, redirección forzada a
+`/cambiar-contrasena` desde `/portal` y `/admin`, validación de "no
+coinciden", cambio OK → `/checkin` mostrando solo el evento asignado (Pao →
+"15 de Martina Gómez"), 403 en `/admin/*`, y baja del empleado cortando
+tanto el login como la sesión abierta.
+
+**Gotchas del smoke test (entorno local, no bugs de la app):** el puerto
+3001 puede estar ocupado por otro proyecto del usuario (`admin-portal`) —
+no matarlo; levantar con `PORT=3011 npm run dev:api` y
+`VITE_API_URL=http://localhost:3011 npm run dev:web` (las variables de
+proceso pisan los `.env`). Si un smoke test traba una cuenta en el limitador de
+login, se libera solo a los 15 min; para no esperar en local, `touch
+apps/api/src/index.ts` hace que `tsx watch` reinicie y vacíe el store en
+memoria (solo un atajo de desarrollo — en producción no hace falta).
+
+### Fase 3 — lo construido (verificado con curl + Playwright)
+
+**1. Perfil público del salón.** `GET /api/v1/public/salon`
+(`modules/salon/`, sin auth, solo campos públicos de `Tenant`) +
+`useSalonProfile()`. La landing (`LandingHeader`, `LandingFooter`,
+`GallerySection`, `QuoteForm`) ya no tiene WhatsApp/Instagram/dirección
+hardcodeados — si un dato no está cargado, el link no se muestra (y el form
+de cotización igual crea el lead, solo no abre WhatsApp). Helpers de
+presentación en `lib/salon.ts`. `LandingPage.test.tsx` stubea ese endpoint.
+
+**2. Micrositio + RSVP + QR (público, sin cuenta).**
+`modules/guests/guests.public.routes.ts`: `GET /public/invite/:inviteToken`,
+`POST /public/invite/:inviteToken/rsvp` (rate limit 20/15 min, como
+`/leads`), `GET /public/guest/:qrToken` (lecturas con un freno holgado de
+300/15 min). Un evento no `ACTIVO` deja de exponer su micrositio (404).
+Pantallas standalone sin Layout (`routes/guests/`): `/i/:inviteToken`
+(cuenta regresiva, lugar, fotos, contacto del salón, form de confirmación o
+"confirmaciones cerradas") y `/q/:qrToken` (entrada: QR + código corto +
+etiqueta "después de las 12"; si está dada de baja, sin QR).
+- **El QR codifica la URL de la entrada** (`<origin>/q/<qrToken>`): con
+  cualquier cámara abre la entrada; el escáner de la puerta extrae el token.
+  Se dibuja en el navegador (`qrcode`, `components/guests/QrCode.tsx`).
+- `entryCode`: 6 caracteres sin ambiguos, único por evento — se verifica
+  antes de insertar en vez de reintentar ante P2002 (un error de unique
+  aborta toda la transacción de `withTenant` en Postgres).
+- Cierre del RSVP (`guests.service.ts#rsvpClosesAt`): "hasta N días antes"
+  inclusive en hora del salón (N=2, evento el 20 → se confirma todo el 18).
+  `SALON_UTC_OFFSET_HOURS = -3` fijo (Argentina sin horario de verano) en
+  `guests.service.ts` y en `apps/web/src/lib/eventTime.ts` — cuando haya
+  salones en otra zona, pasa a ser campo del Tenant.
+- `createGuest()` es el único punto de alta (RSVP, titular, admin).
+
+**3. Gestión de invitados.** Portal (`guests.portal.routes.ts`, con
+`requirePortalAccess()`): `GET /portal/events/:id/guests`,
+`POST .../invite-link` (genera el token la primera vez — no se genera en un
+GET), `POST .../guests` (alta `TITULAR`, sin el cierre de N días),
+`POST /portal/guests/:id/cancel` (solo invitados de su propio beneficiary).
+Gestiona quien tiene beneficiary propio; **el titular de un egreso
+(aggregate) solo ve el avance**, no listas de otras familias (mismo
+criterio de privacidad que pagos). Admin (`guests.admin.routes.ts`):
+`GET/POST /admin/events/:id/guests` (con elección de familia en egreso; sin
+elegir, en 15/boda/empresarial va al único beneficiary),
+`POST /admin/guests/:id/cancel`, `POST /admin/beneficiaries/:id/invite-link`,
+`PUT /admin/events/:id/public-info` (`startTime` HH:mm + `photosUrl`, **solo
+http(s)** — `z.string().url()` acepta `javascript:` y esto termina en un
+href público). UI: `PortalGuestsSection` (en `EventDetailPage`) y
+`AdminGuestsSection` (en `AdminEventDetailPage`), con piezas comunes en
+`components/guests/GuestManagement.tsx`. Avance = `guestAttendance()`:
+COUNT de CONFIRMADO del evento entero vs. `minGuests` o suma de tarjetas.
+En el portal aggregate, la card que decía "Invitados" mostraba en realidad
+la cantidad de alumnos — renombrada a "Alumnos".
+
+**4. Check-in en la puerta.** `modules/checkin/`: `GET /checkin/events/:id`
+(stats admitidos/confirmados), `POST .../lookup` (qr | code | query —
+**solo lectura**, POST para que el contenido del QR no quede en logs de
+URLs), `POST .../guests/:guestId/admit` y `.../reject`. Acceso por evento
+explícito (`assertEventAccess`): PUERTA solo eventos asignados (404 igual
+que inexistente). Reingreso sin nota (≥3 caracteres) → 400
+`REENTRY_NOTE_REQUIRED`; entrada dada de baja → 409 (solo se puede
+rechazar); QR de otro evento → 409 "es de OTRO evento". Pantalla
+`/checkin/:eventId` (`CheckInScanPage.tsx`, mobile-first): cámara con
+`qr-scanner` (no `BarcodeDetector`: no existe en iOS Safari), búsqueda por
+código o por nombre, tarjeta del invitado con "Admitir" de un toque /
+alerta "YA INGRESÓ a las HH:mm" + notas rápidas ("Reingreso verificado con
+DNI", "Confirmado con el titular") + nota obligatoria / "Registrar rechazo".
+Gotchas reales encontrados probando con una cámara falsa (Chromium
+`--use-file-for-fake-video-capture` con un MJPEG del QR):
+- `qr-scanner` analiza por default solo el recuadro central: un QR que llena
+  la pantalla (celular del invitado muy cerca) no se leía → se analiza el
+  cuadro completo (`calculateScanRegion`).
+- El escáner tiene que quedar **montado** (oculto con `hidden`) mientras se
+  muestra la tarjeta: desmontarlo apagaba la cámara y obligaba a
+  reactivarla con cada invitado.
+- El mismo QR se ignora 6 s después de cada acción (sigue frente a la
+  cámara: sin esto reabría la tarjeta como "ya ingresó").
+
+**Bugs previos encontrados y corregidos en esta fase:**
+- **Fechas un día antes en toda la app**: `formatDate` formateaba en la zona
+  del navegador y las fechas de calendario se guardan como medianoche UTC —
+  en Argentina "2026-12-12" se mostraba "11 de diciembre". Ahora
+  `formatDate` usa `timeZone: 'UTC'` (fechas de calendario: evento, pago,
+  período, fecha tentativa) y `formatTimestamp` la zona local (instantes:
+  subido/enviado/creado). **Usar la que corresponda en pantallas nuevas.**
+- Calendario: el rango del mes se pedía desde la medianoche local (03:00Z),
+  así que un evento del día 1 quedaba afuera — ahora límites en UTC.
+- Forms de React Hook Form que no se limpiaban tras el alta: un
+  `reset({...})` parcial deja en pantalla los campos que no menciona —
+  resetear con TODOS los campos (`EMPTY_GUEST_FORM`, alta de empleados).
+
+**Carga diferida:** `/i/:inviteToken`, `/q/:qrToken` y `/checkin/:eventId`
+van con `React.lazy` en `App.tsx` — `qrcode` + `qr-scanner` habían llevado
+el bundle principal a 512 kB (arriba del aviso de Vite); con lazy quedó en
+~479 kB y el invitado no descarga el panel.
+
+**Fuera de alcance, sin cambios:** mural de fotos nativo, playlist,
+directorio de proveedores, envío de emails/WhatsApp desde el sistema (los
+links se comparten con `wa.me`/`mailto:`/copiar).
+

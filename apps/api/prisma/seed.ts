@@ -95,10 +95,18 @@ async function main() {
   // Plan PRO: Fede (dueño real) es el caso de uso del módulo de costeo — sin
   // esto, las pantallas nuevas de costeo quedan gateadas y no se pueden
   // probar contra el seed.
+  // Perfil público (Fase 3): los mismos datos que la landing tenía
+  // hardcodeados. Sin dirección exacta ni link de mapa todavía — la landing
+  // solo dice "Córdoba, Argentina"; completar cuando el salón la pase.
+  const publicProfile = {
+    whatsappNumber: '5493513180810',
+    instagramUrl: 'https://www.instagram.com/raphael.eventos/',
+    address: 'Córdoba, Argentina',
+  };
   const tenant = await prisma.tenant.upsert({
     where: { slug },
-    update: { plan: 'PRO' },
-    create: { slug, name: 'Raphael Eventos', plan: 'PRO' },
+    update: { plan: 'PRO', ...publicProfile },
+    create: { slug, name: 'Raphael Eventos', plan: 'PRO', ...publicProfile },
   });
 
   const passwordHash = await hashPassword(DEMO_USER.password);
@@ -191,11 +199,14 @@ async function main() {
   // evento.
   const employeePao = await prisma.employee.upsert({
     where: { id: SEED_IDS.employeePao },
-    update: {},
+    // Email obligatorio desde Fase 3 (login de puerta) — también en update
+    // para completar las filas sembradas antes de que existiera el campo.
+    update: { email: 'pao@raphaeleventos.com' },
     create: {
       id: SEED_IDS.employeePao,
       tenantId: tenant.id,
       fullName: 'Pao',
+      email: 'pao@raphaeleventos.com',
       contractType: 'MONOTRIBUTO',
       fixedMonthlyAmount: 0,
       variableType: 'COMISION_PCT',
@@ -204,11 +215,12 @@ async function main() {
   });
   await prisma.employee.upsert({
     where: { id: SEED_IDS.employeeAdri },
-    update: {},
+    update: { email: 'adri@raphaeleventos.com' },
     create: {
       id: SEED_IDS.employeeAdri,
       tenantId: tenant.id,
       fullName: 'Adri',
+      email: 'adri@raphaeleventos.com',
       contractType: 'EN_BLANCO',
       fixedMonthlyAmount: 150000,
       variableType: 'MONTO_POR_EVENTO',

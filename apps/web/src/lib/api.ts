@@ -1,5 +1,23 @@
 import type {
   AdminEventDetail,
+  ChangePasswordInput,
+  SalonProfile,
+  GuestPassView,
+  AdminGuestInput,
+  AdminGuestsView,
+  EventPublicInfoInput,
+  GuestInput,
+  GuestSummary,
+  PortalGuestsView,
+  GuestRsvpInput,
+  InviteView,
+  CheckInEventSummary,
+  CheckInAdmitInput,
+  CheckInEventView,
+  CheckInGuestView,
+  CheckInLookupInput,
+  CheckInRejectInput,
+  DoorAccessResult,
   BeneficiaryReport,
   CalendarEntry,
   ClientDetail,
@@ -105,6 +123,12 @@ export const api = {
 
   logout: () => request<null>('/api/v1/auth/logout', { method: 'POST' }),
 
+  changePassword: (input: ChangePasswordInput) =>
+    request<{ user: PublicUser }>('/api/v1/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
   // 401 significa "no hay sesión", no es un error de la app — se traduce a
   // null en vez de dejar que useSession lo trate como isError.
   me: async (): Promise<SessionResponse | null> => {
@@ -115,6 +139,66 @@ export const api = {
       throw err;
     }
   },
+
+  getSalonProfile: () => request<{ salon: SalonProfile }>('/api/v1/public/salon'),
+
+  // -- Micrositio de invitados (público, Fase 3) -----------------------
+
+  getInvite: (inviteToken: string) =>
+    request<{ invite: InviteView }>(`/api/v1/public/invite/${encodeURIComponent(inviteToken)}`),
+
+  rsvp: (inviteToken: string, input: GuestRsvpInput) =>
+    request<{ qrToken: string }>(`/api/v1/public/invite/${encodeURIComponent(inviteToken)}/rsvp`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  // -- Invitados: portal del titular -------------------------------------
+
+  getPortalGuests: (eventId: string) =>
+    request<PortalGuestsView>(`/api/v1/portal/events/${eventId}/guests`),
+
+  ensurePortalInviteLink: (eventId: string) =>
+    request<{ inviteToken: string }>(`/api/v1/portal/events/${eventId}/invite-link`, {
+      method: 'POST',
+    }),
+
+  addPortalGuest: (eventId: string, input: GuestInput) =>
+    request<{ guest: GuestSummary }>(`/api/v1/portal/events/${eventId}/guests`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  cancelPortalGuest: (guestId: string) =>
+    request<null>(`/api/v1/portal/guests/${guestId}/cancel`, { method: 'POST' }),
+
+  // -- Invitados: panel admin ------------------------------------------
+
+  getAdminGuests: (eventId: string) =>
+    request<AdminGuestsView>(`/api/v1/admin/events/${eventId}/guests`),
+
+  ensureAdminInviteLink: (beneficiaryId: string) =>
+    request<{ inviteToken: string }>(`/api/v1/admin/beneficiaries/${beneficiaryId}/invite-link`, {
+      method: 'POST',
+    }),
+
+  addAdminGuest: (eventId: string, input: AdminGuestInput) =>
+    request<{ guest: GuestSummary }>(`/api/v1/admin/events/${eventId}/guests`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  cancelAdminGuest: (guestId: string) =>
+    request<null>(`/api/v1/admin/guests/${guestId}/cancel`, { method: 'POST' }),
+
+  updateEventPublicInfo: (eventId: string, input: EventPublicInfoInput) =>
+    request<{ info: { startTime: string | null; photosUrl: string | null } }>(
+      `/api/v1/admin/events/${eventId}/public-info`,
+      { method: 'PUT', body: JSON.stringify(input) },
+    ),
+
+  getGuestPass: (qrToken: string) =>
+    request<{ pass: GuestPassView }>(`/api/v1/public/guest/${encodeURIComponent(qrToken)}`),
 
   listEvents: () => request<{ events: EventSummary[] }>('/api/v1/portal/events'),
 
@@ -258,6 +342,37 @@ export const api = {
   updateEmployee: (id: string, input: EmployeeInput) =>
     request<{ employee: EmployeeSummary }>(`/api/v1/admin/employees/${id}`, {
       method: 'PUT',
+      body: JSON.stringify(input),
+    }),
+
+  /** Alta de acceso de puerta o reseteo: devuelve la contraseña temporal una sola vez. */
+  grantDoorAccess: (employeeId: string) =>
+    request<DoorAccessResult>(`/api/v1/admin/employees/${employeeId}/door-access`, {
+      method: 'POST',
+    }),
+
+  // -- Check-in de invitados (Fase 3) ----------------------------------
+
+  listCheckInEvents: () => request<{ events: CheckInEventSummary[] }>('/api/v1/checkin/events'),
+
+  getCheckInEvent: (eventId: string) =>
+    request<{ event: CheckInEventView }>(`/api/v1/checkin/events/${eventId}`),
+
+  checkInLookup: (eventId: string, input: CheckInLookupInput) =>
+    request<{ guests: CheckInGuestView[] }>(`/api/v1/checkin/events/${eventId}/lookup`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  checkInAdmit: (eventId: string, guestId: string, input: CheckInAdmitInput) =>
+    request<{ guest: CheckInGuestView }>(
+      `/api/v1/checkin/events/${eventId}/guests/${guestId}/admit`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+
+  checkInReject: (eventId: string, guestId: string, input: CheckInRejectInput) =>
+    request<null>(`/api/v1/checkin/events/${eventId}/guests/${guestId}/reject`, {
+      method: 'POST',
       body: JSON.stringify(input),
     }),
 

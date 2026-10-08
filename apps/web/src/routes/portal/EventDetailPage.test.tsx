@@ -26,6 +26,20 @@ function mockFetch(eventDetail: unknown) {
           ),
         );
       }
+      // Sección de invitados (Fase 3): se pide aparte del detalle.
+      if (url.includes('/guests')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              canManage: false,
+              inviteToken: null,
+              guests: [],
+              attendance: { confirmed: 12, target: 60, targetSource: 'MIN_GUESTS' },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
       if (url.includes('/portal/events/')) {
         return Promise.resolve(
           new Response(JSON.stringify({ event: eventDetail }), {
@@ -93,6 +107,8 @@ describe('EventDetailPage', () => {
 
     expect(await screen.findByText('Egreso 6to A')).toBeInTheDocument();
     expect(screen.getByText(/detalle de pago de cada familia queda privado/)).toBeInTheDocument();
-    expect(screen.getByText('2 de un mínimo de 60')).toBeInTheDocument();
+    expect(screen.getByText('Mínimo de invitados contratado: 60')).toBeInTheDocument();
+    // Avance real de confirmados (PortalGuestsSection), no la cantidad de alumnos.
+    expect(await screen.findByText(/de 60 \(mínimo contratado\)/)).toBeInTheDocument();
   });
 });

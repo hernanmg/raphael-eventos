@@ -8,7 +8,7 @@ import {
   useRunReminders,
   useUpdateReminderConfig,
 } from '../../../hooks/useReminders';
-import { formatDate } from '../../../lib/format';
+import { formatTimestamp } from '../../../lib/format';
 
 const STATUS_LABELS: Record<string, string> = {
   SENT: 'Enviado',
@@ -133,7 +133,7 @@ export default function RemindersPage() {
             <p className="mt-1 text-muted">{log.message}</p>
             {log.errorMessage && <p className="mt-1 text-xs text-red-600">{log.errorMessage}</p>}
             <p className="mt-1 text-xs text-muted">
-              {formatDate(log.sentAt)} · {log.trigger === 'MANUAL' ? 'manual' : 'automático'}
+              {formatTimestamp(log.sentAt)} · {log.trigger === 'MANUAL' ? 'manual' : 'automático'}
             </p>
           </div>
         ))}

@@ -1,5 +1,6 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { useSession } from '../../hooks/useSession';
+import { homePathFor } from '../../lib/homePath';
 
 const ADMIN_ROLES = ['ADMIN', 'VENDEDOR'];
 
@@ -14,8 +15,8 @@ export function RequireAdmin() {
     return <Navigate to="/login" replace />;
   }
 
-  if (!ADMIN_ROLES.includes(data.user.role)) {
-    return <Navigate to="/portal" replace />;
+  if (data.user.mustChangePassword || !ADMIN_ROLES.includes(data.user.role)) {
+    return <Navigate to={homePathFor(data.user)} replace />;
   }
 
   return <Outlet />;

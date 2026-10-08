@@ -118,7 +118,56 @@ export async function verifyLogin(params: LoginParams): Promise<User> {
       throw new InvalidCredentialsError();
     }
 
+    // Empleado PUERTA dado de baja (Employee.active = false): la baja en
+    // /admin/personal es lo que le corta el acceso. Mismo error genérico.
+    if (!(await isDoorAccessActive(tx, user))) {
+      throw new InvalidCredentialsError();
+    }
+
     return user;
+  });
+}
+
+/**
+ * Un usuario PUERTA solo puede operar mientras su Employee siga activo.
+ * Para el resto de los roles siempre es true. Lo usan el login y
+ * requireRole (para cortar también sesiones ya abiertas al dar de baja).
+ */
+async function isDoorAccessActive(tx: Prisma.TransactionClient, user: User): Promise<boolean> {
+  if (user.role !== 'PUERTA') return true;
+  const employee = await tx.employee.findUnique({
+    where: { userId: user.id },
+    select: { active: true },
+  });
+  return employee?.active === true;
+}
+
+export async function userCanOperate(tenantId: string, user: User): Promise<boolean> {
+  return withTenant(tenantId, (tx) => isDoorAccessActive(tx, user));
+}
+
+interface ChangePasswordParams {
+  tenantId: string;
+  userId: string;
+  currentPassword: string;
+  newPassword: string;
+}
+
+/**
+ * Cambio de contraseña del propio usuario. Limpia `mustChangePassword`
+ * (contraseña temporal generada por el admin, Fase 3).
+ */
+export async function changePassword(params: ChangePasswordParams): Promise<User> {
+  const { tenantId, userId, currentPassword, newPassword } = params;
+  return withTenant(tenantId, async (tx) => {
+    const user = await tx.user.findUnique({ where: { id: userId } });
+    if (!user || !(await verifyPassword(user.passwordHash, currentPassword))) {
+      throw new InvalidCredentialsError();
+    }
+    return tx.user.update({
+      where: { id: userId },
+      data: { passwordHash: await hashPassword(newPassword), mustChangePassword: false },
+    });
   });
 }
 
@@ -141,5 +190,11 @@ export async function getTenantPlan(tenantId: string): Promise<'BASICA' | 'PRO'>
 }
 
 export function toPublicUser(user: User) {
-  return { id: user.id, email: user.email, fullName: user.fullName, role: user.role };
+  return {
+    id: user.id,
+    email: user.email,
+    fullName: user.fullName,
+    role: user.role,
+    mustChangePassword: user.mustChangePassword,
+  };
 }

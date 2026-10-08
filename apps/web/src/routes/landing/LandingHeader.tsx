@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useSalonProfile } from '../../hooks/useSalonProfile';
+import { whatsappUrl } from '../../lib/salon';
 
 const NAV_LINKS = [
   { href: '#servicios', label: 'Servicios' },
@@ -8,6 +10,7 @@ const NAV_LINKS = [
 ];
 
 export function LandingHeader() {
+  const { data: salon } = useSalonProfile();
   const [solid, setSolid] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -103,14 +106,16 @@ export function LandingHeader() {
           <Link to="/login" onClick={() => setMenuOpen(false)} className="py-2 text-base text-ink">
             Iniciar sesión
           </Link>
-          <a
-            href="https://wa.me/5493513180810"
-            target="_blank"
-            rel="noopener"
-            className="py-2 text-base text-ink"
-          >
-            WhatsApp
-          </a>
+          {salon?.whatsappNumber && (
+            <a
+              href={whatsappUrl(salon.whatsappNumber)}
+              target="_blank"
+              rel="noopener"
+              className="py-2 text-base text-ink"
+            >
+              WhatsApp
+            </a>
+          )}
         </nav>
       )}
     </header>

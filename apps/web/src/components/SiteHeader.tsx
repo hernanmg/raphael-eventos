@@ -22,9 +22,15 @@ export function SiteHeader() {
 
         {data?.user ? (
           <>
-            <Link to="/portal" className="text-muted hover:text-ink">
-              Mi portal
-            </Link>
+            {data.user.role === 'PUERTA' ? (
+              <Link to="/checkin" className="text-muted hover:text-ink">
+                Check-in
+              </Link>
+            ) : (
+              <Link to="/portal" className="text-muted hover:text-ink">
+                Mi portal
+              </Link>
+            )}
             {(data.user.role === 'ADMIN' || data.user.role === 'VENDEDOR') && (
               <Link to="/admin" className="text-muted hover:text-ink">
                 Panel admin

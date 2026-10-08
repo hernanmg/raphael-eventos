@@ -24,6 +24,12 @@ const envSchema = z.object({
   TENANT_SLUG: z.string().min(1).default('raphael-eventos'),
 
   WEB_ORIGIN: z.string().min(1).default('http://localhost:5173'),
+
+  // Cantidad de proxies delante del server (Railway/Render ponen 1). Sin esto,
+  // detrás de un proxy req.ip es la IP del proxy — todos los usuarios
+  // compartirían un único contador de rate limit — y req.secure es false, así
+  // que express-session no setea la cookie `secure` en producción. 0 en local.
+  TRUST_PROXY: z.coerce.number().int().min(0).default(0),
 });
 
 export const env = envSchema.parse(process.env);

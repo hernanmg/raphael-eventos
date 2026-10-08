@@ -172,4 +172,44 @@ export const helpFeatures: HelpFeature[] = [
     path: '/admin/clientes',
     keywords: ['cliente', 'clientes', 'cuenta', 'buscar cliente'],
   },
+  {
+    id: 'admin-acceso-puerta',
+    title: 'Acceso de empleados a la puerta',
+    purpose:
+      'Solo para admin/vendedor. Desde Personal, le das a un empleado acceso al check-in de invitados: el sistema genera una contraseña temporal que le pasás en persona o por email, y al entrar por primera vez elige una propia. Dar de baja al empleado le corta el acceso.',
+    path: '/admin/personal',
+    keywords: ['puerta', 'check-in', 'acceso', 'contraseña', 'empleado', 'login'],
+  },
+  {
+    id: 'portal-invitados',
+    title: 'Invitados de tu evento',
+    purpose:
+      'Desde el detalle de tu evento compartís tu link de invitación (copiar, WhatsApp o QR), ves quién confirmó, cargás invitados vos mismo —incluidos los de "entrada después de las 12"— y das de baja a quien no va. En un egreso, cada familia maneja la lista de su alumno.',
+    path: '/portal',
+    keywords: ['invitados', 'rsvp', 'confirmar asistencia', 'link', 'qr', 'lista'],
+  },
+  {
+    id: 'micrositio-invitados',
+    title: 'Micrositio y entrada con QR (para invitados)',
+    purpose:
+      'El invitado abre el link, ve la cuenta regresiva, el lugar y las fotos del evento, confirma con su nombre sin crear cuenta y recibe su entrada con un QR y un código corto para mostrar en la puerta. La confirmación por link cierra 2 días antes del evento.',
+    path: '/portal',
+    keywords: ['micrositio', 'invitacion', 'qr', 'entrada', 'cuenta regresiva', 'confirmar'],
+  },
+  {
+    id: 'admin-invitados',
+    title: 'Invitados y micrositio (panel)',
+    purpose:
+      'Solo para admin/vendedor. En el detalle de cada evento: hora de inicio y link de fotos del fotógrafo para el micrositio, links de invitación por familia, avance de confirmados contra el mínimo contratado (o las tarjetas), y alta/baja de invitados.',
+    path: '/admin',
+    keywords: ['invitados', 'micrositio', 'fotos', 'link', 'minimo', 'confirmados'],
+  },
+  {
+    id: 'checkin',
+    title: 'Check-in en la puerta',
+    purpose:
+      'Para el personal de la puerta (y admin/vendedor). Escaneás el QR con la cámara del celular, o buscás por código o por nombre, y admitís con un toque. Un reingreso avisa a qué hora entró la primera vez y pide anotar cómo lo verificaste; una entrada dada de baja solo se puede rechazar.',
+    path: '/checkin',
+    keywords: ['check-in', 'puerta', 'escanear', 'qr', 'ingreso', 'reingreso'],
+  },
 ];

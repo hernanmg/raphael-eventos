@@ -31,8 +31,8 @@ export type {
   SupplyUnit,
 } from './enums';
 
-export { RegisterSchema, LoginSchema, PublicUserSchema } from './auth';
-export type { RegisterInput, LoginInput, PublicUser } from './auth';
+export { RegisterSchema, LoginSchema, ChangePasswordSchema, PublicUserSchema } from './auth';
+export type { RegisterInput, LoginInput, ChangePasswordInput, PublicUser } from './auth';
 
 export type {
   CardSummary,
@@ -124,4 +124,38 @@ export type {
   EmployeeTimeEntrySummary,
   PayrollEntrySummary,
   CommissionAdvanceSummary,
+  DoorAccessResult,
 } from './staff';
+
+export {
+  GuestRsvpSchema,
+  GuestInputSchema,
+  AdminGuestInputSchema,
+  EventPublicInfoSchema,
+  CheckInLookupSchema,
+  CheckInAdmitSchema,
+  CheckInRejectSchema,
+} from './guests';
+export type {
+  GuestRsvpInput,
+  GuestInput,
+  AdminGuestInput,
+  EventPublicInfoInput,
+  GuestSource,
+  GuestSummary,
+  GuestAttendance,
+  PortalGuestsView,
+  AdminGuestsView,
+  GuestStatus,
+  PublicEventInfo,
+  InviteView,
+  GuestPassView,
+  CheckInEventSummary,
+  CheckInLookupInput,
+  CheckInAdmitInput,
+  CheckInRejectInput,
+  CheckInGuestView,
+  CheckInEventView,
+} from './guests';
+
+export type { SalonProfile } from './salon';

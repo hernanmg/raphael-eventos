@@ -224,6 +224,8 @@ export async function getEventDetailForAdmin(
       type: event.type,
       name: event.name,
       eventDate: event.eventDate?.toISOString() ?? null,
+      startTime: event.startTime,
+      photosUrl: event.photosUrl,
       status: event.status,
       titularName: event.titularName,
       titularEmail: event.titularEmail,

@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { requireRole } from '../../middleware/requireRole';
-import { requireAuth } from '../../middleware/requireAuth';
+import { requirePortalAccess, requireRole } from '../../middleware/requireRole';
 import {
   ContractNotFoundError,
   EventNotAccessibleError,
@@ -84,7 +83,7 @@ contractsAdminRouter.get('/events/:eventId/contract/file', async (req, res, next
 });
 
 export const contractsPortalRouter = Router();
-contractsPortalRouter.use(requireAuth);
+contractsPortalRouter.use(requirePortalAccess());
 
 contractsPortalRouter.get('/events/:eventId/contract', async (req, res, next) => {
   try {

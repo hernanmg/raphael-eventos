@@ -29,6 +29,14 @@ export function useUpdateEmployee() {
   });
 }
 
+export function useGrantDoorAccess() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (employeeId: string) => api.grantDoorAccess(employeeId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'employees'] }),
+  });
+}
+
 export function useEventStaff(eventId: string) {
   return useQuery({
     queryKey: ['admin', 'events', eventId, 'staff'],

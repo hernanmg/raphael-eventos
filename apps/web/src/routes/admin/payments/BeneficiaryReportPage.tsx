@@ -5,6 +5,7 @@ import {
   EVENT_TYPE_LABELS,
   formatCurrency,
   formatDate,
+  formatTimestamp,
 } from '../../../lib/format';
 
 /**
@@ -41,7 +42,7 @@ export default function BeneficiaryReportPage() {
       {report.beneficiaryLabel && (
         <p className="text-sm text-muted">Alumno/a: {report.beneficiaryLabel}</p>
       )}
-      <p className="mt-1 text-xs text-muted">Generado el {formatDate(report.generatedAt)}</p>
+      <p className="mt-1 text-xs text-muted">Generado el {formatTimestamp(report.generatedAt)}</p>
 
       <table className="mt-6 w-full text-left text-sm">
         <thead className="border-b border-line text-xs uppercase tracking-wide text-muted">

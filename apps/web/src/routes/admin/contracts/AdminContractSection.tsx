@@ -5,7 +5,7 @@ import {
   useDeleteContract,
   useUploadContract,
 } from '../../../hooks/useContracts';
-import { formatDate } from '../../../lib/format';
+import { formatTimestamp } from '../../../lib/format';
 
 export function AdminContractSection({ eventId }: { eventId: string }) {
   const { data, isLoading } = useAdminContract(eventId);
@@ -28,7 +28,9 @@ export function AdminContractSection({ eventId }: { eventId: string }) {
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-medium text-ink">{data.contract.fileName}</p>
-            <p className="text-xs text-muted">Subido el {formatDate(data.contract.uploadedAt)}</p>
+            <p className="text-xs text-muted">
+              Subido el {formatTimestamp(data.contract.uploadedAt)}
+            </p>
           </div>
           <div className="flex gap-3">
             <a

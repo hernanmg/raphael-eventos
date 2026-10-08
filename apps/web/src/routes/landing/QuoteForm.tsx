@@ -2,8 +2,9 @@ import { useRef, type FormEvent } from 'react';
 import type { EventType } from '@raphael-eventos/shared';
 import { Reveal } from '../../components/Reveal';
 import { useSubmitLead } from '../../hooks/useCrm';
+import { useSalonProfile } from '../../hooks/useSalonProfile';
+import { whatsappUrl } from '../../lib/salon';
 
-const WHATSAPP_NUMBER = '5493513180810';
 const EVENT_TYPES: { label: string; value: EventType }[] = [
   { label: '15 años', value: 'QUINCE' },
   { label: 'Egresados', value: 'EGRESO' },
@@ -18,6 +19,7 @@ export function QuoteForm() {
   const fechaRef = useRef<HTMLInputElement>(null);
   const mensajeRef = useRef<HTMLTextAreaElement>(null);
   const submitLead = useSubmitLead();
+  const { data: salon } = useSalonProfile();
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -42,8 +44,11 @@ export function QuoteForm() {
     const texto = `Hola! Soy ${nombre} (${telefono}). Quiero cotizar un evento de *${tipoLabel}*, fecha tentativa: ${
       fecha || 'a definir'
     }. ${mensaje ? 'Detalle: ' + mensaje : ''}`;
-    const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(texto)}`;
-    window.open(url, '_blank');
+    // Sin número cargado (o si el perfil no llegó a cargar) la consulta igual
+    // queda en el CRM — solo se omite abrir WhatsApp.
+    if (salon?.whatsappNumber) {
+      window.open(whatsappUrl(salon.whatsappNumber, texto), '_blank');
+    }
   }
 
   return (

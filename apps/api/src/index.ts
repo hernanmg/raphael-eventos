@@ -16,6 +16,11 @@ import { crmRouter, leadsPublicRouter } from './modules/crm/crm.routes';
 import { importAlumnosRouter } from './modules/admin/importAlumnos';
 import { contractsAdminRouter, contractsPortalRouter } from './modules/contracts/contracts.routes';
 import { remindersRouter } from './modules/reminders/reminders.routes';
+import { checkInRouter } from './modules/checkin/checkin.routes';
+import { salonPublicRouter } from './modules/salon/salon.routes';
+import { guestsPublicRouter } from './modules/guests/guests.public.routes';
+import { guestsPortalRouter } from './modules/guests/guests.portal.routes';
+import { guestsAdminRouter } from './modules/guests/guests.admin.routes';
 import { startReminderCron } from './jobs/reminderCron';
 import { startIpcCron } from './jobs/ipcCron';
 
@@ -23,6 +28,7 @@ const PgSession = connectPgSimple(session);
 
 export function createApp() {
   const app = express();
+  if (env.TRUST_PROXY > 0) app.set('trust proxy', env.TRUST_PROXY);
 
   app.use(helmet());
   app.use(cors({ origin: env.WEB_ORIGIN, credentials: true }));
@@ -65,6 +71,11 @@ export function createApp() {
   apiRouter.use('/admin', contractsAdminRouter);
   apiRouter.use('/portal', contractsPortalRouter);
   apiRouter.use('/admin', remindersRouter);
+  apiRouter.use('/checkin', checkInRouter);
+  apiRouter.use('/public', salonPublicRouter);
+  apiRouter.use('/public', guestsPublicRouter);
+  apiRouter.use('/portal', guestsPortalRouter);
+  apiRouter.use('/admin', guestsAdminRouter);
   apiRouter.use(leadsPublicRouter);
   app.use('/api/v1', apiRouter);
 
