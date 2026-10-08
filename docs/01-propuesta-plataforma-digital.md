@@ -41,8 +41,9 @@ Se instala como app (ícono en pantalla de inicio/escritorio) sin pasar por App 
 Presentar la propuesta y ajustar prioridades, definir contenido de la landing, acordar alcance y cronograma de la Fase 1, y conseguir el Excel actual de valores de tarjetas para diseñar la importación automática.
 
 ## Estado
-Propuesta entregada al usuario en .docx el 19/08/2026. **Las 4 fases originales están construidas y cerradas con Claude Code** (detalle de cada una en `03-reunion-cami-fede.md` y `04-arquitectura-y-costos.md`). Pendientes generales a esta fecha (08/10/2026), ninguno bloqueante para que Fede y Cami empiecen a usarla como piloto:
-- Correr `npm run test` al menos una vez de punta a punta — se fue postergando fase a fase.
+Propuesta entregada al usuario en .docx el 19/08/2026. **Las 4 fases originales están construidas, cerradas y verificadas con Claude Code** (detalle de cada una en `03-reunion-cami-fede.md` y `04-arquitectura-y-costos.md`). `npm run test` corre completo en verde (50/50 — shared, API y web), incluyendo un bug real que encontró esa corrida: la limpieza de datos de test no filtraba por tenant y dependía por accidente de una FK para no borrar eventos reales — quedó resuelto con un helper (`src/test/dbCleanup.ts`) que descubre las tablas a limpiar desde el catálogo de FKs de Postgres, filtrado por marcas de test (emails @example.com, ids test-…), en vez de una lista mantenida a mano.
+
+Pendientes generales a esta fecha (08/10/2026), ninguno bloqueante para que Fede y Cami empiecen a usarla como piloto:
 - Backfill histórico de IPC (la comparativa interanual muestra "sin IPC" para meses anteriores al arranque del sistema, por falta de datos históricos — la API de datos.gob.ar tiene esos valores, falta un fetch retroactivo único).
 - Reglas de negocio del costeo Pro (renegociación de insumos >10%, tope de seña 30%) siguen sin definirse en ningún artefacto, solo mencionadas verbalmente por Fede.
 - Validar tarifas de WhatsApp Business API directamente con Meta (hoy la referencia es de un agregador, no la fuente oficial).
