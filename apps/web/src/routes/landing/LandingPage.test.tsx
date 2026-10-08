@@ -46,7 +46,8 @@ describe('LandingPage', () => {
     );
 
     await user.type(screen.getByLabelText('Nombre y apellido'), 'Cami Gómez');
-    await user.type(screen.getByLabelText('WhatsApp'), '351 555 1234');
+    // Por rol: el ícono de WhatsApp del footer también tiene aria-label "WhatsApp".
+    await user.type(screen.getByRole('textbox', { name: 'WhatsApp' }), '351 555 1234');
     await user.selectOptions(screen.getByLabelText('Tipo de evento'), 'Boda');
     await user.click(screen.getByRole('button', { name: 'Enviar por WhatsApp' }));
 

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '../../db/prisma';
 import { withTenant } from '../../db/withTenant';
 import { env } from '../../env';
+import { cleanupTestData, disconnectCleanup } from '../../test/dbCleanup';
 import { indexFactor } from '../../lib/financials';
 import { EventNotAccessibleError, getUserEventDetail, listUserEvents } from './portal.service';
 
@@ -18,7 +19,6 @@ import { EventNotAccessibleError, getUserEventDetail, listUserEvents } from './p
 // sin chocar con períodos reales) y las tarjetas "sin ajuste" usan un
 // basePeriod en 2100 (posterior a cualquier índice cargado → factor 1),
 // mismo truco que admin.test.ts. No dependen de qué IPC haya guardado.
-const TEST_EMAIL_DOMAIN = '@example.com';
 const TEST_ID_PREFIX = 'test-portal-';
 
 let tenantId: string;
@@ -28,21 +28,12 @@ beforeAll(async () => {
   tenantId = tenant.id;
 });
 
-async function cleanupTestData() {
-  await withTenant(tenantId, async (tx) => {
-    await tx.eventAccount.deleteMany({ where: { id: { startsWith: TEST_ID_PREFIX } } });
-    await tx.payment.deleteMany({ where: { id: { startsWith: TEST_ID_PREFIX } } });
-    await tx.eventCard.deleteMany({ where: { id: { startsWith: TEST_ID_PREFIX } } });
-    await tx.eventBeneficiary.deleteMany({ where: { id: { startsWith: TEST_ID_PREFIX } } });
-    await tx.event.deleteMany({ where: { id: { startsWith: TEST_ID_PREFIX } } });
-    await tx.ipcIndexValue.deleteMany({ where: { id: { startsWith: TEST_ID_PREFIX } } });
-    await tx.user.deleteMany({ where: { email: { endsWith: TEST_EMAIL_DOMAIN } } });
-  });
-}
-
-beforeEach(cleanupTestData);
+// Limpieza centralizada (src/test/dbCleanup.ts): borra en cascada todo lo
+// de test (ids "test-", emails @example.com, IPC >= 2099) y nada más.
+beforeEach(() => cleanupTestData());
 afterAll(async () => {
   await cleanupTestData();
+  await disconnectCleanup();
   await prisma.$disconnect();
 });
 
@@ -58,7 +49,7 @@ describe('portal.service — evento propio (titular de QUINCE)', () => {
   it('calcula tarjetas con el valor actualizado por IPC, saldo y % abonado', async () => {
     const user = await createTestUser('quince@example.com');
 
-    const detail = await withTenant(tenantId, async (tx) => {
+    const eventId = await withTenant(tenantId, async (tx) => {
       await tx.ipcIndexValue.create({
         data: {
           id: `${TEST_ID_PREFIX}ipc-base`,
@@ -123,8 +114,12 @@ describe('portal.service — evento propio (titular de QUINCE)', () => {
         },
       });
 
-      return getUserEventDetail(tenantId, user.id, event.id);
+      return event.id;
     });
+    // Fuera de la transacción de los fixtures: getUserEventDetail abre su
+    // propio withTenant (otra transacción/conexión) y no vería filas sin
+    // commitear — llamarlo adentro del callback daba EventNotAccessibleError.
+    const detail = await getUserEventDetail(tenantId, user.id, eventId);
 
     // 10 tarjetas * 1000 base * (110/100) = 11000
     expect(detail.scope).toBe('own');
@@ -144,7 +139,7 @@ describe('portal.service — evento propio (titular de QUINCE)', () => {
   it('una tarjeta con período base posterior al último IPC vale su valor base', async () => {
     const user = await createTestUser('sinipc@example.com');
 
-    const detail = await withTenant(tenantId, async (tx) => {
+    const eventId = await withTenant(tenantId, async (tx) => {
       const event = await tx.event.create({
         data: { id: `${TEST_ID_PREFIX}event-sinipc`, tenantId, type: 'BODA', name: 'Boda Test' },
       });
@@ -173,8 +168,12 @@ describe('portal.service — evento propio (titular de QUINCE)', () => {
         },
       });
 
-      return getUserEventDetail(tenantId, user.id, event.id);
+      return event.id;
     });
+    // Fuera de la transacción de los fixtures: getUserEventDetail abre su
+    // propio withTenant (otra transacción/conexión) y no vería filas sin
+    // commitear — llamarlo adentro del callback daba EventNotAccessibleError.
+    const detail = await getUserEventDetail(tenantId, user.id, eventId);
 
     expect(detail.own?.cards[0]?.unitValue).toBe(2000);
   });
@@ -184,7 +183,7 @@ describe('portal.service — titular de EGRESO (agregado, sin detalle por famili
   it('suma los totales de todos los beneficiaries pero no expone el detalle de cada uno', async () => {
     const user = await createTestUser('egreso-titular@example.com');
 
-    const detail = await withTenant(tenantId, async (tx) => {
+    const eventId = await withTenant(tenantId, async (tx) => {
       const event = await tx.event.create({
         data: {
           id: `${TEST_ID_PREFIX}event-egreso`,
@@ -231,8 +230,12 @@ describe('portal.service — titular de EGRESO (agregado, sin detalle por famili
         },
       });
 
-      return getUserEventDetail(tenantId, user.id, event.id);
+      return event.id;
     });
+    // Fuera de la transacción de los fixtures: getUserEventDetail abre su
+    // propio withTenant (otra transacción/conexión) y no vería filas sin
+    // commitear — llamarlo adentro del callback daba EventNotAccessibleError.
+    const detail = await getUserEventDetail(tenantId, user.id, eventId);
 
     expect(detail.scope).toBe('aggregate');
     expect(detail.aggregate?.beneficiaryCount).toBe(2);

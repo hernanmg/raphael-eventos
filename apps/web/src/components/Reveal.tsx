@@ -11,6 +11,12 @@ export function Reveal({ children, className = '' }: { children: ReactNode; clas
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    // Sin IntersectionObserver (navegadores viejos, jsdom en los tests) se
+    // muestra directo: antes tiraba ReferenceError y rompía la landing entera.
+    if (typeof IntersectionObserver === 'undefined') {
+      setVisible(true);
+      return;
+    }
 
     const observer = new IntersectionObserver(
       ([entry]) => {

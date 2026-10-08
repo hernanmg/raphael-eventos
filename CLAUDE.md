@@ -414,16 +414,33 @@ funcionalidad de cara al usuario, agregarla a
 de la ruta) en el mismo cambio que la implementa, no después. No agregar
 entradas de funcionalidades a medio hacer.
 
-**Gotcha real ya corregido — los tests de `apps/api` corren contra el mismo
-Postgres/tenant que usa el seed.** `auth.test.ts` hacía `user.deleteMany({})`
-sin filtro en `beforeEach`/`afterAll` — como corre contra el tenant real
-"raphael-eventos" (no uno aislado), cada corrida de la suite borraba también
-al usuario demo sembrado por `prisma/seed.ts`, rompiendo el login local hasta
-volver a sembrar. Fix aplicado: el cleanup solo borra usuarios con email
-`@example.com` (el dominio que usan todos los fixtures del archivo, RFC 2606)
-— nunca un `deleteMany({})` sin scope sobre `user` en ese archivo. Si se
-agregan tests nuevos que crean usuarios, usar ese mismo dominio o extender el
-filtro; no volver a un `deleteMany({})` sin condición.
+**Tests de `apps/api`: corren contra el MISMO Postgres y el MISMO tenant que
+el seed — limpieza centralizada en `src/test/dbCleanup.ts`.** Historia: cada
+archivo tenía su propia lista de `deleteMany` y se desactualizaba con cada
+tabla nueva. `auth.test.ts` llegó a borrar al usuario demo (`user.deleteMany({})`)
+y después borraba `event`/`eventBeneficiary`/`eventAccount` **sin filtro**: hoy
+eso solo no destruía todos los eventos reales porque la FK de `event_cards`
+abortaba la transacción (el `Foreign key constraint violated:
+event_cards_beneficiaryId_fkey` era la red de seguridad, no el bug — agregar
+`eventCard.deleteMany({})` "para arreglarlo" habría borrado los datos reales).
+Ahora TODOS los archivos usan `cleanupTestData()` / `disconnectCleanup()`:
+- **Qué es de test** (convención obligatoria para fixtures nuevos): emails
+  `@example.com`, ids `test-…`, IPC con período `>= 2099`. Nada más se toca.
+- **Cascada leída de las FKs de Postgres** (`pg_constraint`): una tabla nueva
+  que cuelgue de eventos/usuarios queda cubierta sola. FK NOT NULL → se borra
+  la fila hija; FK nullable → se pone en NULL (un dato real que apunte a algo
+  de test no se pierde). Los ids de test se resuelven ANTES de borrar.
+- Corre con el rol dueño (`DATABASE_URL`): `app_user` no tiene DELETE en las
+  tablas append-only. Borra también la auditoría de eventos de test y la de
+  IPC de test (que no tienen FK).
+- **No** es `TRUNCATE … CASCADE`: TRUNCATE no acepta WHERE y vaciaría las
+  tablas enteras, datos demo incluidos.
+- Patrón de fixtures: crear los datos en un `withTenant` y llamar al service
+  **después** (fuera del callback) — `withTenant` abre otra transacción y no
+  ve filas sin commitear (eso causaba los `EventNotAccessibleError` de
+  `portal.test.ts`, un bug separado de la limpieza).
+- Verificado: antes/después de la suite completa los conteos de datos reales
+  son idénticos y no queda ninguna fila de test (incluida la auditoría).
 
 **Testing del frontend:** `src/test/setup.ts` stubea `fetch` global antes de
 cada test para simular "deslogueado" por default (`SiteHeader` dispara
@@ -828,15 +845,9 @@ eventos sin filtro de fecha) — por eso `getDashboard` pasó de devolver
 `upcoming` (top 5) a devolver `events` (todos): filtrar client-side por tipo
 sobre una lista ya recortada a "próximos 5" no tendría sentido.
 
-**Otro bug del mismo patrón que el de `auth.test.ts` — cleanup de
-`admin.test.ts` no borraba nada de lo que creaba.** `createEvent()` (a
-diferencia de las fixtures directas de Prisma en `portal.test.ts`) genera
-sus propios cuids, no acepta un id custom — el cleanup por prefijo de id
-(`test-admin-`) nunca hizo match contra nada real y dejaba eventos huérfanos
-en el tenant en cada corrida. Fix: el cleanup de ese archivo filtra por
-`titularEmail` terminado en `@example.com` (dominio de todos los fixtures
-del archivo) en vez de por prefijo de id — revisar esto si se agrega un
-test nuevo ahí que cree eventos con otro criterio.
+(El cleanup de `admin.test.ts` por `titularEmail @example.com` y el resto de
+la historia de limpiezas por archivo quedaron reemplazados por
+`src/test/dbCleanup.ts` — ver "Tests de `apps/api`" más arriba.)
 
 **Preferencia de workflow del usuario:** no correr `npm run test` /
 `vitest` — lo corre él. Sí correr `typecheck`, `build`, migraciones y seed

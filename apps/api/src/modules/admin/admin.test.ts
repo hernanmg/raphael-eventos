@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '../../db/prisma';
 import { withTenant } from '../../db/withTenant';
 import { env } from '../../env';
+import { cleanupTestData, disconnectCleanup } from '../../test/dbCleanup';
 import {
   EventNotFoundError,
   addIpcEntry,
@@ -17,7 +18,6 @@ import {
 // prefijo de id como en los otros archivos de test — filtra por
 // titularEmail @example.com en su lugar, dominio que usan todos los eventos
 // de este archivo.
-const TEST_EMAIL_DOMAIN = '@example.com';
 
 let tenantId: string;
 let adminUserId: string;
@@ -42,37 +42,12 @@ beforeAll(async () => {
   adminUserId = admin.id;
 });
 
-async function cleanupTestData() {
-  await withTenant(tenantId, async (tx) => {
-    const testEvents = await tx.event.findMany({
-      where: { tenantId, titularEmail: { endsWith: TEST_EMAIL_DOMAIN } },
-      select: { id: true },
-    });
-    const eventIds = testEvents.map((event) => event.id);
-
-    if (eventIds.length > 0) {
-      const beneficiaries = await tx.eventBeneficiary.findMany({
-        where: { eventId: { in: eventIds } },
-        select: { id: true },
-      });
-      const beneficiaryIds = beneficiaries.map((beneficiary) => beneficiary.id);
-
-      await tx.eventAccount.deleteMany({ where: { eventId: { in: eventIds } } });
-      await tx.eventCard.deleteMany({ where: { beneficiaryId: { in: beneficiaryIds } } });
-      await tx.eventBeneficiary.deleteMany({ where: { eventId: { in: eventIds } } });
-      await tx.event.deleteMany({ where: { id: { in: eventIds } } });
-    }
-
-    await tx.user.deleteMany({
-      where: { email: { endsWith: TEST_EMAIL_DOMAIN }, id: { not: adminUserId } },
-    });
-  });
-}
-
-beforeEach(cleanupTestData);
+// Limpieza centralizada (src/test/dbCleanup.ts): conserva el admin de test
+// entre tests y lo borra (junto con todo lo de test) al final.
+beforeEach(() => cleanupTestData({ keepUserIds: [adminUserId] }));
 afterAll(async () => {
   await cleanupTestData();
-  await withTenant(tenantId, (tx) => tx.user.delete({ where: { id: adminUserId } }));
+  await disconnectCleanup();
   await prisma.$disconnect();
 });
 

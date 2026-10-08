@@ -4,6 +4,7 @@ import { createApp } from '../../index';
 import { prisma } from '../../db/prisma';
 import { withTenant } from '../../db/withTenant';
 import { env } from '../../env';
+import { cleanupTestData, disconnectCleanup } from '../../test/dbCleanup';
 
 // Estos tests pegan contra el Postgres local real (docker compose, puerto
 // 5450) para poder verificar RLS de punta a punta, no solo la lógica de la
@@ -15,7 +16,6 @@ import { env } from '../../env';
 // usan todos los fixtures de este archivo, ver RFC 2606). Un deleteMany({})
 // sin filtro se lleva puesto el usuario demo real en cada corrida — pasó de
 // verdad y rompió el login local hasta que se resembró.
-const TEST_EMAIL_DOMAIN = '@example.com';
 
 let tenantId: string;
 
@@ -24,22 +24,15 @@ beforeAll(async () => {
   tenantId = tenant.id;
 });
 
-async function cleanupTestData() {
-  await withTenant(tenantId, async (tx) => {
-    // event/eventBeneficiary/eventAccount no se scopean por email porque hoy
-    // nada más que estos tests crea filas ahí (no existe todavía un alta de
-    // eventos) — cuando eso exista, escopear estas tres igual que a user.
-    await tx.eventAccount.deleteMany({});
-    await tx.eventBeneficiary.deleteMany({});
-    await tx.event.deleteMany({});
-    await tx.user.deleteMany({ where: { email: { endsWith: TEST_EMAIL_DOMAIN } } });
-  });
-}
-
-beforeEach(cleanupTestData);
+// Limpieza centralizada (src/test/dbCleanup.ts). Antes este archivo borraba
+// event/eventBeneficiary/eventAccount SIN FILTRO sobre el tenant real: si la
+// FK de event_cards no hubiera abortado la transacción, cada corrida habría
+// borrado todos los eventos reales. Ahora solo se borra lo de test.
+beforeEach(() => cleanupTestData());
 
 afterAll(async () => {
   await cleanupTestData();
+  await disconnectCleanup();
   await prisma.$disconnect();
 });
 
