@@ -101,7 +101,8 @@ export async function runReminderSweep(
 
     const [beneficiaries, ipcRows] = await Promise.all([
       tx.eventBeneficiary.findMany({
-        where: { tenantId },
+        // Fase 4: un evento cancelado/finalizado no genera recordatorios.
+        where: { tenantId, event: { status: 'ACTIVO' } },
         include: { cards: true, payments: true, event: true },
       }),
       tx.ipcIndexValue.findMany({ where: { tenantId }, orderBy: { period: 'asc' } }),

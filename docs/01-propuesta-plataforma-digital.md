@@ -1,6 +1,6 @@
 # Raphael Eventos — Propuesta de plataforma digital
 
-*Landing comercial + portal de clientes y panel administrador. Documento preparado a partir del mockup y la nota de voz enviados por el cliente (agosto 2026). Versión completa en `propuesta-raphael-eventos.docx`.*
+*Landing comercial + portal de clientes y panel administrador. Documento preparado a partir del mockup y la nota de voz enviados por el cliente (agosto 2026). Versión completa entregada como .docx en la conversación.*
 
 ## 1. Resumen ejecutivo
 La idea original: una app donde cada cliente ve sus eventos contratados (15 años o egresos), cuánto pagó, cuánto debe y a qué valor está su tarjeta hoy (actualizada por IPC), sin llamar para preguntar. Del lado del salón, un panel para ver eventos, cobros y saldos. Esta propuesta suma más músculo administrativo (vender y cobrar mejor, no solo mostrar info) y una capa interactiva para invitados. Sin presupuesto para apps nativas → PWA instalable (resuelve el pedido de "anclar al escritorio" sin costo de tiendas).
@@ -29,14 +29,22 @@ Invitado (sin cuenta) → Cliente (login) → Vendedor/Fede (usuario interno, CR
 ## 8. Por qué PWA y no app nativa
 Se instala como app (ícono en pantalla de inicio/escritorio) sin pasar por App Store/Play Store, sin costo de tienda, un solo código para las tres capas, soporta notificaciones push, y deja abierta la puerta a migrar a nativa el día que el volumen lo justifique.
 
-## 9. Fases sugeridas
-1. **Base:** landing + login/registro + portal cliente + panel admin básico (lo ya diseñado), como PWA.
-2. **Cobrar y vender mejor:** CRM de consultas, calendario de disponibilidad, recordatorios automáticos, importación de Excel, contratos digitales.
-3. **Invitados:** micrositio por evento, RSVP, mural de fotos, QR.
-4. **Escala:** reportes avanzados, usuario vendedor, playlist colaborativa, exportaciones, trazabilidad.
+## 9. Fases sugeridas — las 4 fases originales están terminadas
+1. **Base — terminada.** Landing + login/registro propio (no Supabase Auth, ver `04-arquitectura-y-costos.md`) + portal cliente + panel admin básico, como PWA. Base de datos local con Docker, primera migración aplicada.
+2. **Cobrar y vender mejor — terminada.** CRM de consultas, calendario de disponibilidad, recordatorios automáticos, importación de Excel, contratos digitales — más dos módulos nuevos que no estaban en el alcance original y se sumaron acá: **costeo interno** (Plan Pro, rubros + fórmula de precio real de Fede) y **personal/empleados** (Básica: ABM + asignación a evento; Pro: horas, liquidación, comisiones). Ver el detalle completo en `03-reunion-cami-fede.md`.
+3. **Invitados — terminada.** Micrositio por evento, RSVP, QR individual, check-in en la puerta con rol "Puerta" para empleados. Mural de fotos y playlist colaborativa quedaron en su versión simple (link externo/Instagram), no la nativa — decisión confirmada más de una vez, no es un pendiente.
+4. **Escala — terminada.** Directorio de proveedores + sponsors (landing/portal filtrados por tipo de evento, comisión de referencia nunca expuesta públicamente), edición de eventos (datos, estado, cambio de titular con transferencia real de acceso al portal), ajuste trazable de valores de tarjeta (motivo obligatorio, separado del ajuste automático por IPC), auditoría a nivel de base de datos (append-only, ni la propia app puede alterar el historial), reportes (ocupación, comprometido vs. cobrado, interanual) y exportaciones (Excel/CSV/PDF). El "usuario vendedor" del alcance original quedó resuelto sin cambios (se usa el rol tal cual está). La playlist colaborativa sigue diferida a propósito.
+
+**Fuera de las 4 fases, a propósito:** el onboarding multi-tenant (alta de un salón nuevo, panel de superadmin, cobro de Básica/Pro) necesario para vender a los otros ~60 salones del grupo de Fede no entra en ninguna de las fases de arriba — son todas features para que Cami y Fede usen la plataforma, no para revenderla. Se decidió dejarlo como un proyecto aparte, para cuando se acerque la venta real (el plan de negocio habla de "el año que viene" después del piloto).
 
 ## 10. Próximos pasos
 Presentar la propuesta y ajustar prioridades, definir contenido de la landing, acordar alcance y cronograma de la Fase 1, y conseguir el Excel actual de valores de tarjetas para diseñar la importación automática.
 
 ## Estado
-Propuesta entregada al usuario en .docx el 19/08/2026. Pendiente de feedback del cliente (dueño del salón) para definir alcance final de Fase 1.
+Propuesta entregada al usuario en .docx el 19/08/2026. **Las 4 fases originales están construidas y cerradas con Claude Code** (detalle de cada una en `03-reunion-cami-fede.md` y `04-arquitectura-y-costos.md`). Pendientes generales a esta fecha (08/10/2026), ninguno bloqueante para que Fede y Cami empiecen a usarla como piloto:
+- Correr `npm run test` al menos una vez de punta a punta — se fue postergando fase a fase.
+- Backfill histórico de IPC (la comparativa interanual muestra "sin IPC" para meses anteriores al arranque del sistema, por falta de datos históricos — la API de datos.gob.ar tiene esos valores, falta un fetch retroactivo único).
+- Reglas de negocio del costeo Pro (renegociación de insumos >10%, tope de seña 30%) siguen sin definirse en ningún artefacto, solo mencionadas verbalmente por Fede.
+- Validar tarifas de WhatsApp Business API directamente con Meta (hoy la referencia es de un agregador, no la fuente oficial).
+- Confirmar con Fede y Cami los precios finales de Básica/Pro y los fees de alta.
+- Onboarding multi-tenant (ver nota arriba) — deliberadamente fuera de alcance hasta que se acerque la venta a otros salones.

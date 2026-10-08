@@ -47,6 +47,8 @@ export {
   EventCardInputSchema,
   AlumnoInputSchema,
   CreateEventSchema,
+  UpdateEventSchema,
+  CardAdjustmentSchema,
   CreateIpcEntrySchema,
   RecordPaymentSchema,
 } from './admin';
@@ -54,6 +56,8 @@ export type {
   EventCardInput,
   AlumnoInput,
   CreateEventInput,
+  UpdateEventInput,
+  CardAdjustmentInput,
   CreateIpcEntryInput,
   AdminEventListItem,
   DashboardSummary,
@@ -159,3 +163,18 @@ export type {
 } from './guests';
 
 export type { SalonProfile } from './salon';
+
+export { ProviderInputSchema, SponsorInputSchema } from './providers';
+export type {
+  ProviderInput,
+  SponsorInput,
+  PublicProvider,
+  AdminProvider,
+  PublicSponsor,
+  AdminSponsor,
+} from './providers';
+
+export { AUDIT_AREAS } from './audit';
+export type { AuditActionType, AuditLogEntry, AuditLogPage } from './audit';
+
+export type { MonthReport, YearReport } from './reports';

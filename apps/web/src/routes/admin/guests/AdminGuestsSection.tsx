@@ -15,6 +15,7 @@ import {
   InviteLinkBox,
 } from '../../../components/guests/GuestManagement';
 import { errorText } from '../../../lib/guestLinks';
+import { apiUrl } from '../../../lib/api';
 
 /**
  * Invitados + micrositio desde el panel (Fase 3): datos del micrositio
@@ -38,7 +39,23 @@ export function AdminGuestsSection({
 
   return (
     <div className="mt-10 rounded-2xl border border-line bg-paper p-5">
-      <h2 className="font-serif text-xl font-semibold">Invitados y micrositio</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-serif text-xl font-semibold">Invitados y micrositio</h2>
+        <div className="flex gap-3 text-xs">
+          <a
+            href={apiUrl(`/api/v1/admin/events/${eventId}/guests/export?format=xlsx`)}
+            className="text-muted underline hover:text-ink"
+          >
+            Exportar Excel
+          </a>
+          <a
+            href={apiUrl(`/api/v1/admin/events/${eventId}/guests/export?format=csv`)}
+            className="text-muted underline hover:text-ink"
+          >
+            CSV
+          </a>
+        </div>
+      </div>
 
       <PublicInfoForm eventId={eventId} startTime={startTime} photosUrl={photosUrl} />
 

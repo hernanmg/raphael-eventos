@@ -101,7 +101,8 @@ export async function getCalendar(
   return withTenant(tenantId, async (tx) => {
     const [events, leads] = await Promise.all([
       tx.event.findMany({
-        where: { tenantId, eventDate: { gte: from, lt: to } },
+        // Fase 4: un evento CANCELADO libera la fecha (FINALIZADO sí la ocupó).
+        where: { tenantId, eventDate: { gte: from, lt: to }, status: { not: 'CANCELADO' } },
         select: { id: true, name: true, type: true, eventDate: true },
       }),
       tx.lead.findMany({

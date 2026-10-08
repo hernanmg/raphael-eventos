@@ -16,6 +16,7 @@ import type {
 import { withTenant } from '../../db/withTenant';
 import { prisma } from '../../db/prisma';
 import { getSalonProfile } from '../salon/salon.service';
+import { audit, diffFields } from '../../lib/audit';
 
 export class InviteNotFoundError extends Error {}
 export class RsvpClosedError extends Error {}
@@ -527,10 +528,27 @@ export async function updateEventPublicInfo(
 ) {
   return withTenant(tenantId, async (tx) => {
     await loadAdminEvent(tx, tenantId, eventId);
-    return tx.event.update({
+    const before = await tx.event.findUniqueOrThrow({
       where: { id: eventId },
-      data: { startTime: input.startTime ?? null, photosUrl: input.photosUrl ?? null },
+      select: { startTime: true, photosUrl: true, name: true },
+    });
+    const data = { startTime: input.startTime ?? null, photosUrl: input.photosUrl ?? null };
+    const updated = await tx.event.update({
+      where: { id: eventId },
+      data,
       select: { startTime: true, photosUrl: true },
     });
+    const changes = diffFields(before, data, ['startTime', 'photosUrl']);
+    if (changes) {
+      await audit(tx, tenantId, {
+        entityType: 'Event',
+        entityId: eventId,
+        eventId,
+        action: 'UPDATE',
+        summary: `Micrositio de "${before.name}": hora/fotos`,
+        changes,
+      });
+    }
+    return updated;
   });
 }

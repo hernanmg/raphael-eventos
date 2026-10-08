@@ -1,6 +1,7 @@
 import type { EventContractSummary } from '@raphael-eventos/shared';
 import { withTenant } from '../../db/withTenant';
 import { contractStorage } from '../../lib/storage';
+import { audit } from '../../lib/audit';
 
 export class ContractNotFoundError extends Error {}
 export class EventNotAccessibleError extends Error {}
@@ -41,6 +42,15 @@ export async function uploadContract(
       update: { fileName, storageKey: key, uploadedById, uploadedAt: new Date() },
       create: { tenantId, eventId, fileName, storageKey: key, uploadedById },
     });
+    await audit(tx, tenantId, {
+      entityType: 'EventContract',
+      entityId: contract.id,
+      eventId,
+      action: existing ? 'UPDATE' : 'CREATE',
+      summary: existing
+        ? `Contrato reemplazado: "${existing.fileName}" → "${fileName}"`
+        : `Contrato subido: "${fileName}"`,
+    });
     return { fileName: contract.fileName, uploadedAt: contract.uploadedAt.toISOString() };
   });
 }
@@ -51,6 +61,13 @@ export async function deleteContract(tenantId: string, eventId: string): Promise
     if (!contract) return;
     await contractStorage.delete(contract.storageKey);
     await tx.eventContract.delete({ where: { eventId } });
+    await audit(tx, tenantId, {
+      entityType: 'EventContract',
+      entityId: contract.id,
+      eventId,
+      action: 'DELETE',
+      summary: `Contrato borrado: "${contract.fileName}"`,
+    });
   });
 }
 

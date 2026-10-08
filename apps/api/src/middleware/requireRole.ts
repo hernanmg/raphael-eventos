@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { Role } from '@prisma/client';
 import { getUserById, userCanOperate } from '../modules/auth/auth.service';
+import { actorFromUser, runWithActor } from '../lib/requestContext';
 
 /**
  * A diferencia de requireAuth (que solo mira la cookie de sesión),
@@ -34,7 +35,9 @@ export function requireRole(...roles: Role[]) {
         return;
       }
       req.currentUser = user;
-      next();
+      // Contexto de auditoría (Fase 4): todo lo que corra de acá en adelante
+      // en este request sabe quién está operando (lib/audit.ts).
+      runWithActor(actorFromUser(user), () => next());
     } catch (err) {
       next(err);
     }

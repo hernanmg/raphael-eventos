@@ -21,6 +21,13 @@ import { salonPublicRouter } from './modules/salon/salon.routes';
 import { guestsPublicRouter } from './modules/guests/guests.public.routes';
 import { guestsPortalRouter } from './modules/guests/guests.portal.routes';
 import { guestsAdminRouter } from './modules/guests/guests.admin.routes';
+import { auditRouter } from './modules/audit/audit.routes';
+import { reportsRouter } from './modules/reports/reports.routes';
+import {
+  providersAdminRouter,
+  providersPortalRouter,
+  providersPublicRouter,
+} from './modules/providers/providers.routes';
 import { startReminderCron } from './jobs/reminderCron';
 import { startIpcCron } from './jobs/ipcCron';
 
@@ -76,6 +83,11 @@ export function createApp() {
   apiRouter.use('/public', guestsPublicRouter);
   apiRouter.use('/portal', guestsPortalRouter);
   apiRouter.use('/admin', guestsAdminRouter);
+  apiRouter.use('/admin', auditRouter);
+  apiRouter.use('/admin', reportsRouter);
+  apiRouter.use('/admin', providersAdminRouter);
+  apiRouter.use('/public', providersPublicRouter);
+  apiRouter.use('/portal', providersPortalRouter);
   apiRouter.use(leadsPublicRouter);
   app.use('/api/v1', apiRouter);
 

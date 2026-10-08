@@ -6,6 +6,8 @@ import { PortalTeaserSection } from './PortalTeaserSection';
 import { GallerySection } from './GallerySection';
 import { QuoteForm } from './QuoteForm';
 import { LandingFooter } from './LandingFooter';
+import { ProvidersSection } from './ProvidersSection';
+import { SponsorsStrip } from './SponsorsStrip';
 
 // Port a React de docs/landing/landing.html — mismo contenido y diseño,
 // referencia de docs/05-landing-page-notas.md. Dos diferencias a propósito
@@ -23,7 +25,9 @@ export default function LandingPage() {
       <AboutSection />
       <PortalTeaserSection />
       <GallerySection />
+      <ProvidersSection />
       <QuoteForm />
+      <SponsorsStrip />
       <LandingFooter />
     </div>
   );

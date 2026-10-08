@@ -9,6 +9,7 @@ import type {
 import { withTenant } from '../../db/withTenant';
 import { computeAggregateFinancials } from '../../lib/financials';
 import { generateTemporaryPassword, hashPassword } from '../../lib/password';
+import { audit, diffFields, money, snapshot } from '../../lib/audit';
 
 export class NotFoundError extends Error {}
 export class EmailInUseError extends Error {}
@@ -58,9 +59,25 @@ export async function listEmployees(tenantId: string) {
 }
 
 export async function createEmployee(tenantId: string, input: EmployeeInput) {
-  return withTenant(tenantId, async (tx) =>
-    serializeEmployee(await tx.employee.create({ data: { tenantId, ...input } })),
-  );
+  return withTenant(tenantId, async (tx) => {
+    const row = await tx.employee.create({ data: { tenantId, ...input } });
+    await audit(tx, tenantId, {
+      entityType: 'Employee',
+      entityId: row.id,
+      action: 'CREATE',
+      summary: `Alta del empleado ${row.fullName}`,
+      changes: snapshot(row, [
+        'fullName',
+        'email',
+        'contractType',
+        'fixedMonthlyAmount',
+        'variableType',
+        'variableValue',
+        'active',
+      ]),
+    });
+    return serializeEmployee(row);
+  });
 }
 
 export async function updateEmployee(tenantId: string, id: string, input: EmployeeInput) {
@@ -78,7 +95,29 @@ export async function updateEmployee(tenantId: string, id: string, input: Employ
       });
     }
 
-    return serializeEmployee(await tx.employee.update({ where: { id }, data: input }));
+    const row = await tx.employee.update({ where: { id }, data: input });
+    const changes = diffFields(current, input, [
+      'fullName',
+      'email',
+      'contractType',
+      'fixedMonthlyAmount',
+      'variableType',
+      'variableValue',
+      'active',
+    ]);
+    if (changes) {
+      const activeChanged = current.active !== input.active;
+      await audit(tx, tenantId, {
+        entityType: 'Employee',
+        entityId: id,
+        action: 'UPDATE',
+        summary: activeChanged
+          ? `${input.active ? 'Reactivación' : 'Baja'} del empleado ${row.fullName}`
+          : `Edición del empleado ${row.fullName}`,
+        changes,
+      });
+    }
+    return serializeEmployee(row);
   });
 }
 
@@ -134,6 +173,17 @@ export async function grantDoorAccess(tenantId: string, employeeId: string) {
       });
       await tx.employee.update({ where: { id: employee.id }, data: { userId: user.id } });
     }
+
+    // Nunca la contraseña: solo que se dio/reseteó el acceso.
+    await audit(tx, tenantId, {
+      entityType: 'Employee',
+      entityId: employee.id,
+      action: 'UPDATE',
+      summary: employee.userId
+        ? `Nueva contraseña temporal de puerta para ${employee.fullName}`
+        : `Acceso de puerta dado a ${employee.fullName}`,
+      changes: { accesoPuerta: employee.userId ? 'RESETEADO' : 'OTORGADO', email: employee.email },
+    });
 
     return { email: employee.email, temporaryPassword };
   });
@@ -211,6 +261,18 @@ export async function assignStaff(
       });
     }
 
+    await audit(tx, tenantId, {
+      entityType: 'EventStaffAssignment',
+      entityId: assignment.id,
+      eventId,
+      action: 'CREATE',
+      summary: `${employee.fullName} asignado/a al evento`,
+      changes: {
+        empleado: employee.fullName,
+        costoAutoGenerado: employee.variableType !== 'NINGUNO',
+      },
+    });
+
     return serializeAssignment(assignment);
   });
 }
@@ -222,7 +284,10 @@ export async function assignStaff(
  */
 export async function unassignStaff(tenantId: string, assignmentId: string) {
   return withTenant(tenantId, async (tx) => {
-    const assignment = await tx.eventStaffAssignment.findUnique({ where: { id: assignmentId } });
+    const assignment = await tx.eventStaffAssignment.findUnique({
+      where: { id: assignmentId },
+      include: { employee: { select: { fullName: true } } },
+    });
     if (!assignment || assignment.tenantId !== tenantId) throw new NotFoundError();
 
     await tx.eventServiceCost.deleteMany({
@@ -236,6 +301,13 @@ export async function unassignStaff(tenantId: string, assignmentId: string) {
     });
 
     await tx.eventStaffAssignment.delete({ where: { id: assignmentId } });
+    await audit(tx, tenantId, {
+      entityType: 'EventStaffAssignment',
+      entityId: assignmentId,
+      eventId: assignment.eventId,
+      action: 'DELETE',
+      summary: `${assignment.employee.fullName} desasignado/a del evento`,
+    });
   });
 }
 
@@ -281,7 +353,15 @@ export async function recordTimeEntry(
         note: input.note ?? null,
         eventId: input.eventId ?? null,
       },
-      include: { event: { select: { name: true } } },
+      include: { event: { select: { name: true } }, employee: { select: { fullName: true } } },
+    });
+    await audit(tx, tenantId, {
+      entityType: 'EmployeeTimeEntry',
+      entityId: row.id,
+      eventId: row.eventId,
+      action: 'UPDATE',
+      summary: `Horas de ${row.employee.fullName} el ${date.toISOString().slice(0, 10)}`,
+      changes: snapshot(row, ['date', 'hours', 'note', 'eventId']),
     });
     return serializeTimeEntry(row);
   });
@@ -333,7 +413,15 @@ export async function recordCommissionAdvance(
         eventId: input.eventId ?? null,
         note: input.note ?? null,
       },
-      include: { event: { select: { name: true } } },
+      include: { event: { select: { name: true } }, employee: { select: { fullName: true } } },
+    });
+    await audit(tx, tenantId, {
+      entityType: 'EmployeeCommissionAdvance',
+      entityId: row.id,
+      eventId: row.eventId,
+      action: 'CREATE',
+      summary: `Comisión adelantada a ${row.employee.fullName} por ${money(row.amount)}`,
+      changes: snapshot(row, ['date', 'amount', 'eventId', 'note']),
     });
     return serializeCommissionAdvance(row);
   });
@@ -419,6 +507,21 @@ export async function computePayrollPeriod(
         data: { reconciledInEntryId: entry.id },
       });
     }
+
+    const total = Number(entry.fixedComponent) + variableComponent - advancesDeducted;
+    await audit(tx, tenantId, {
+      entityType: 'PayrollEntry',
+      entityId: entry.id,
+      action: 'UPDATE',
+      summary: `Liquidación de ${employee.fullName} — ${period.toISOString().slice(0, 7)}: ${money(total)}`,
+      changes: {
+        periodo: period.toISOString(),
+        fijo: Number(entry.fixedComponent),
+        variable: variableComponent,
+        adelantosDescontados: advancesDeducted,
+        adelantosReconciliados: pendingAdvances.length,
+      },
+    });
 
     return serializePayrollEntry(entry);
   });

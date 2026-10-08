@@ -10,6 +10,7 @@ import type {
 } from '@raphael-eventos/shared';
 import type { Prisma } from '@prisma/client';
 import { withTenant } from '../../db/withTenant';
+import { audit, diffFields, money, snapshot } from '../../lib/audit';
 
 export class NotFoundError extends Error {}
 
@@ -37,11 +38,28 @@ export async function updateCostConfig(
   input: TenantCostConfigInput,
 ): Promise<TenantCostConfigSummary> {
   return withTenant(tenantId, async (tx) => {
+    const before = await tx.tenantCostConfig.findUnique({ where: { tenantId } });
     const row = await tx.tenantCostConfig.upsert({
       where: { tenantId },
       update: input,
       create: { tenantId, ...input },
     });
+    const changes = diffFields(before ?? { ...DEFAULT_COST_CONFIG }, input, [
+      'gananciaPct',
+      'roturaPct',
+      'ivaPct',
+      'insumoRenegotiationPct',
+      'advanceDepositCapPct',
+    ]);
+    if (changes) {
+      await audit(tx, tenantId, {
+        entityType: 'TenantCostConfig',
+        entityId: row.id,
+        action: 'UPDATE',
+        summary: 'Cambio en la configuración de costeo',
+        changes,
+      });
+    }
     return serializeCostConfig(row);
   });
 }
@@ -71,11 +89,29 @@ export async function listSupplyCategories(tenantId: string) {
 }
 
 export async function createSupplyCategory(tenantId: string, input: SupplyCategoryInput) {
-  return withTenant(tenantId, (tx) => tx.supplyCategory.create({ data: { tenantId, ...input } }));
+  return withTenant(tenantId, async (tx) => {
+    const row = await tx.supplyCategory.create({ data: { tenantId, ...input } });
+    await audit(tx, tenantId, {
+      entityType: 'SupplyCategory',
+      entityId: row.id,
+      action: 'CREATE',
+      summary: `Alta del rubro de insumo "${row.name}"`,
+    });
+    return row;
+  });
 }
 
 export async function deleteSupplyCategory(tenantId: string, id: string) {
-  return withTenant(tenantId, (tx) => tx.supplyCategory.delete({ where: { id } }));
+  return withTenant(tenantId, async (tx) => {
+    const row = await tx.supplyCategory.delete({ where: { id } });
+    await audit(tx, tenantId, {
+      entityType: 'SupplyCategory',
+      entityId: id,
+      action: 'DELETE',
+      summary: `Baja del rubro de insumo "${row.name}"`,
+    });
+    return row;
+  });
 }
 
 export async function listServiceCostCategories(tenantId: string) {
@@ -85,13 +121,29 @@ export async function listServiceCostCategories(tenantId: string) {
 }
 
 export async function createServiceCostCategory(tenantId: string, input: ServiceCostCategoryInput) {
-  return withTenant(tenantId, (tx) =>
-    tx.serviceCostCategory.create({ data: { tenantId, ...input } }),
-  );
+  return withTenant(tenantId, async (tx) => {
+    const row = await tx.serviceCostCategory.create({ data: { tenantId, ...input } });
+    await audit(tx, tenantId, {
+      entityType: 'ServiceCostCategory',
+      entityId: row.id,
+      action: 'CREATE',
+      summary: `Alta del rubro de servicio "${row.name}"`,
+    });
+    return row;
+  });
 }
 
 export async function deleteServiceCostCategory(tenantId: string, id: string) {
-  return withTenant(tenantId, (tx) => tx.serviceCostCategory.delete({ where: { id } }));
+  return withTenant(tenantId, async (tx) => {
+    const row = await tx.serviceCostCategory.delete({ where: { id } });
+    await audit(tx, tenantId, {
+      entityType: 'ServiceCostCategory',
+      entityId: id,
+      action: 'DELETE',
+      summary: `Baja del rubro de servicio "${row.name}"`,
+    });
+    return row;
+  });
 }
 
 function serializeFixedCostCategory(row: {
@@ -119,9 +171,17 @@ export async function listFixedCostCategories(tenantId: string) {
 }
 
 export async function createFixedCostCategory(tenantId: string, input: FixedCostCategoryInput) {
-  return withTenant(tenantId, async (tx) =>
-    serializeFixedCostCategory(await tx.fixedCostCategory.create({ data: { tenantId, ...input } })),
-  );
+  return withTenant(tenantId, async (tx) => {
+    const row = await tx.fixedCostCategory.create({ data: { tenantId, ...input } });
+    await audit(tx, tenantId, {
+      entityType: 'FixedCostCategory',
+      entityId: row.id,
+      action: 'CREATE',
+      summary: `Alta del gasto fijo "${row.name}" (${money(row.monthlyAmount)}/mes)`,
+      changes: snapshot(row, ['name', 'monthlyAmount', 'guestScaled']),
+    });
+    return serializeFixedCostCategory(row);
+  });
 }
 
 export async function updateFixedCostCategory(
@@ -129,13 +189,35 @@ export async function updateFixedCostCategory(
   id: string,
   input: FixedCostCategoryInput,
 ) {
-  return withTenant(tenantId, async (tx) =>
-    serializeFixedCostCategory(await tx.fixedCostCategory.update({ where: { id }, data: input })),
-  );
+  return withTenant(tenantId, async (tx) => {
+    const before = await tx.fixedCostCategory.findUniqueOrThrow({ where: { id } });
+    const row = await tx.fixedCostCategory.update({ where: { id }, data: input });
+    const changes = diffFields(before, input, ['name', 'monthlyAmount', 'guestScaled']);
+    if (changes) {
+      await audit(tx, tenantId, {
+        entityType: 'FixedCostCategory',
+        entityId: id,
+        action: 'UPDATE',
+        summary: `Cambio en el gasto fijo "${row.name}"`,
+        changes,
+      });
+    }
+    return serializeFixedCostCategory(row);
+  });
 }
 
 export async function deleteFixedCostCategory(tenantId: string, id: string) {
-  return withTenant(tenantId, (tx) => tx.fixedCostCategory.delete({ where: { id } }));
+  return withTenant(tenantId, async (tx) => {
+    const row = await tx.fixedCostCategory.delete({ where: { id } });
+    await audit(tx, tenantId, {
+      entityType: 'FixedCostCategory',
+      entityId: id,
+      action: 'DELETE',
+      summary: `Baja del gasto fijo "${row.name}" (${money(row.monthlyAmount)}/mes)`,
+      changes: snapshot(row, ['name', 'monthlyAmount', 'guestScaled']),
+    });
+    return row;
+  });
 }
 
 // -- Insumos y servicios por evento ------------------------------------------
@@ -226,6 +308,14 @@ export async function createEventSupplyLine(
       },
       include: { category: true },
     });
+    await audit(tx, tenantId, {
+      entityType: 'EventSupplyLine',
+      entityId: line.id,
+      eventId,
+      action: 'CREATE',
+      summary: `Insumo "${line.productName}" (${line.category.name})`,
+      changes: snapshot(line, ['categoryId', 'productName', 'quantity', 'unit', 'unitCost']),
+    });
     const threshold = await getRenegotiationThreshold(tx, tenantId);
     return serializeSupplyLine(tx, tenantId, line, threshold);
   });
@@ -237,6 +327,7 @@ export async function updateEventSupplyLine(
   input: EventSupplyLineInput,
 ) {
   return withTenant(tenantId, async (tx) => {
+    const before = await tx.eventSupplyLine.findUniqueOrThrow({ where: { id } });
     const line = await tx.eventSupplyLine.update({
       where: { id },
       data: {
@@ -248,13 +339,41 @@ export async function updateEventSupplyLine(
       },
       include: { category: true },
     });
+    const changes = diffFields(before, input, [
+      'categoryId',
+      'productName',
+      'quantity',
+      'unit',
+      'unitCost',
+    ]);
+    if (changes) {
+      await audit(tx, tenantId, {
+        entityType: 'EventSupplyLine',
+        entityId: id,
+        eventId: line.eventId,
+        action: 'UPDATE',
+        summary: `Cambio en el insumo "${line.productName}"`,
+        changes,
+      });
+    }
     const threshold = await getRenegotiationThreshold(tx, tenantId);
     return serializeSupplyLine(tx, tenantId, line, threshold);
   });
 }
 
 export async function deleteEventSupplyLine(tenantId: string, id: string) {
-  return withTenant(tenantId, (tx) => tx.eventSupplyLine.delete({ where: { id } }));
+  return withTenant(tenantId, async (tx) => {
+    const line = await tx.eventSupplyLine.delete({ where: { id } });
+    await audit(tx, tenantId, {
+      entityType: 'EventSupplyLine',
+      entityId: id,
+      eventId: line.eventId,
+      action: 'DELETE',
+      summary: `Baja del insumo "${line.productName}"`,
+      changes: snapshot(line, ['categoryId', 'productName', 'quantity', 'unit', 'unitCost']),
+    });
+    return line;
+  });
 }
 
 function serializeServiceCost(row: {
@@ -284,21 +403,28 @@ export async function createEventServiceCost(
   eventId: string,
   input: EventServiceCostInput,
 ) {
-  return withTenant(tenantId, async (tx) =>
-    serializeServiceCost(
-      await tx.eventServiceCost.create({
-        data: {
-          tenantId,
-          eventId,
-          categoryId: input.categoryId ?? null,
-          employeeId: input.employeeId ?? null,
-          amount: input.amount,
-          note: input.note ?? null,
-        },
-        include: { category: true, employee: { select: { fullName: true } } },
-      }),
-    ),
-  );
+  return withTenant(tenantId, async (tx) => {
+    const row = await tx.eventServiceCost.create({
+      data: {
+        tenantId,
+        eventId,
+        categoryId: input.categoryId ?? null,
+        employeeId: input.employeeId ?? null,
+        amount: input.amount,
+        note: input.note ?? null,
+      },
+      include: { category: true, employee: { select: { fullName: true } } },
+    });
+    await audit(tx, tenantId, {
+      entityType: 'EventServiceCost',
+      entityId: row.id,
+      eventId,
+      action: 'CREATE',
+      summary: `Gasto de servicio ${row.category?.name ?? row.employee?.fullName ?? ''} por ${money(row.amount)}`,
+      changes: snapshot(row, ['categoryId', 'employeeId', 'amount', 'note']),
+    });
+    return serializeServiceCost(row);
+  });
 }
 
 export async function updateEventServiceCost(
@@ -322,12 +448,45 @@ export async function updateEventServiceCost(
       },
       include: { category: true, employee: { select: { fullName: true } } },
     });
+    const changes = existing
+      ? diffFields(
+          existing,
+          {
+            ...input,
+            categoryId: input.categoryId ?? null,
+            employeeId: input.employeeId ?? null,
+            note: input.note ?? null,
+          },
+          ['categoryId', 'employeeId', 'amount', 'note'],
+        )
+      : null;
+    if (changes) {
+      await audit(tx, tenantId, {
+        entityType: 'EventServiceCost',
+        entityId: id,
+        eventId: updated.eventId,
+        action: 'UPDATE',
+        summary: `Cambio en el gasto de servicio ${updated.category?.name ?? updated.employee?.fullName ?? ''}`,
+        changes,
+      });
+    }
     return serializeServiceCost(updated);
   });
 }
 
 export async function deleteEventServiceCost(tenantId: string, id: string) {
-  return withTenant(tenantId, (tx) => tx.eventServiceCost.delete({ where: { id } }));
+  return withTenant(tenantId, async (tx) => {
+    const row = await tx.eventServiceCost.delete({ where: { id } });
+    await audit(tx, tenantId, {
+      entityType: 'EventServiceCost',
+      entityId: id,
+      eventId: row.eventId,
+      action: 'DELETE',
+      summary: `Baja de un gasto de servicio de ${money(row.amount)}`,
+      changes: snapshot(row, ['categoryId', 'employeeId', 'amount', 'note']),
+    });
+    return row;
+  });
 }
 
 /**

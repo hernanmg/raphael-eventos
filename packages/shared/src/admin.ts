@@ -5,7 +5,7 @@
 // mismo, no hay input de usuario que validar ahí).
 
 import { z } from 'zod';
-import { CardTypeSchema, EventTypeSchema } from './enums';
+import { CardTypeSchema, EventTypeSchema, EventStatusSchema } from './enums';
 import { optionalText } from './zodHelpers';
 import type { AccountRole, EventStatus, EventType } from './enums';
 import type { CardSummary, PaymentSummary } from './portal';
@@ -90,6 +90,37 @@ export const CreateEventSchema = z
 export type CreateEventInput = z.infer<typeof CreateEventSchema>;
 
 /**
+ * Edición de un evento ya creado (Fase 4). El tipo NO se edita (define la
+ * estructura de beneficiaries). Cambiar `titularEmail` re-vincula el portal:
+ * el titular viejo pierde acceso, el nuevo lo gana (ver
+ * admin.service.ts#updateEvent). `minGuests` solo aplica a EGRESO.
+ */
+export const UpdateEventSchema = z.object({
+  name: z.string().trim().min(2, 'Ingresá un nombre para el evento').max(160),
+  eventDate: optionalText(z.string().trim().min(1)),
+  titularName: optionalText(z.string().trim().min(2).max(160)),
+  titularEmail: z.string().trim().toLowerCase().email('Email inválido'),
+  titularPhone: optionalText(z.string().trim().min(6, 'Teléfono inválido').max(30)),
+  minGuests: optionalText(z.coerce.number().int().min(0).max(100_000)),
+  status: EventStatusSchema,
+});
+export type UpdateEventInput = z.infer<typeof UpdateEventSchema>;
+
+/**
+ * Ajuste MANUAL de una tarjeta (renegociación) — Fase 4. No es un UPDATE
+ * suelto: queda un EventCardAdjustment con el antes/después y el motivo, y la
+ * tarjeta se re-basa (`unitValue` = valor vigente desde hoy, sigue indexando
+ * por IPC desde el período actual).
+ */
+export const CardAdjustmentSchema = z.object({
+  quantity: z.coerce.number().int().min(0).max(100_000),
+  /** Valor unitario vigente desde hoy (no el baseValue histórico). */
+  unitValue: z.coerce.number().positive('El valor tiene que ser mayor a 0').max(1_000_000_000),
+  reason: z.string().trim().min(3, 'Contá el motivo del ajuste').max(300),
+});
+export type CardAdjustmentInput = z.infer<typeof CardAdjustmentSchema>;
+
+/**
  * Ambos valores son puntos porcentuales de variación intermensual del IPC
  * (ej. 2.11 = +2.11% ese mes) — el mismo dato que devuelve la serie de
  * datos.gob.ar (145.3_INGNACUAL_DICI_M_38, "Variación intermensual"), no
@@ -158,6 +189,7 @@ export interface AdminEventDetail {
   status: EventStatus;
   titularName: string | null;
   titularEmail: string | null;
+  titularPhone: string | null;
   minGuests: number | null;
   beneficiaries: AdminBeneficiaryDetail[];
   totals: {

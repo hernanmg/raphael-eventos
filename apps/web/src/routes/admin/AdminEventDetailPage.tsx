@@ -1,7 +1,17 @@
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAdminEventDetail } from '../../hooks/useAdmin';
 import { useSession } from '../../hooks/useSession';
-import { CARD_TYPE_LABELS, EVENT_TYPE_LABELS, formatCurrency, formatDate } from '../../lib/format';
+import {
+  CARD_TYPE_LABELS,
+  EVENT_STATUS_LABELS,
+  EVENT_TYPE_LABELS,
+  formatCurrency,
+  formatDate,
+} from '../../lib/format';
+import { EventEditSection } from './events/EventEditSection';
+import { CardAdjustForm } from './events/CardAdjustForm';
+import { EventHistorySection } from './events/EventHistorySection';
 import { EventCostingSection } from './costing/EventCostingSection';
 import { EventStaffSection } from './staff/EventStaffSection';
 import { AdminGuestsSection } from './guests/AdminGuestsSection';
@@ -12,6 +22,7 @@ export default function AdminEventDetailPage() {
   const { eventId } = useParams<{ eventId: string }>();
   const { data, isLoading, isError } = useAdminEventDetail(eventId);
   const { data: session } = useSession();
+  const [adjustingCardId, setAdjustingCardId] = useState<string | null>(null);
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
@@ -27,7 +38,20 @@ export default function AdminEventDetailPage() {
           <span className="text-xs font-semibold uppercase tracking-wide text-gold">
             {EVENT_TYPE_LABELS[data.event.type]}
           </span>
-          <h1 className="mt-1 font-serif text-3xl font-semibold">{data.event.name}</h1>
+          <div className="mt-1 flex flex-wrap items-center gap-3">
+            <h1 className="font-serif text-3xl font-semibold">{data.event.name}</h1>
+            {data.event.status !== 'ACTIVO' && (
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  data.event.status === 'CANCELADO'
+                    ? 'bg-red-50 text-red-700'
+                    : 'bg-cream-2 text-ink'
+                }`}
+              >
+                {EVENT_STATUS_LABELS[data.event.status]}
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-sm text-muted">{formatDate(data.event.eventDate)}</p>
 
           <div className="mt-4 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
@@ -39,6 +63,12 @@ export default function AdminEventDetailPage() {
               <span className="text-muted">Email: </span>
               {data.event.titularEmail || '—'}
             </p>
+            {data.event.titularPhone && (
+              <p>
+                <span className="text-muted">Teléfono: </span>
+                {data.event.titularPhone}
+              </p>
+            )}
             {data.event.minGuests !== null && (
               <p>
                 <span className="text-muted">Mínimo de invitados: </span>
@@ -46,6 +76,8 @@ export default function AdminEventDetailPage() {
               </p>
             )}
           </div>
+
+          <EventEditSection event={data.event} />
 
           <div className="mt-6 grid grid-cols-1 gap-4 rounded-2xl border border-line bg-paper p-5 sm:grid-cols-3">
             <Stat
@@ -95,7 +127,8 @@ export default function AdminEventDetailPage() {
                         <th className="py-1 pr-2">Cant.</th>
                         <th className="py-1 pr-2">Pagas</th>
                         <th className="py-1 pr-2">Valor actual</th>
-                        <th className="py-1">Subtotal</th>
+                        <th className="py-1 pr-2">Subtotal</th>
+                        <th className="py-1" />
                       </tr>
                     </thead>
                     <tbody>
@@ -115,12 +148,36 @@ export default function AdminEventDetailPage() {
                             </span>
                           </td>
                           <td className="py-1.5 pr-2">{formatCurrency(card.unitValue)}</td>
-                          <td className="py-1.5 font-medium">{formatCurrency(card.subtotal)}</td>
+                          <td className="py-1.5 pr-2 font-medium">
+                            {formatCurrency(card.subtotal)}
+                          </td>
+                          <td className="py-1.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setAdjustingCardId(adjustingCardId === card.id ? null : card.id)
+                              }
+                              className="text-xs text-muted underline hover:text-ink"
+                            >
+                              Ajustar
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 )}
+                {beneficiary.cards
+                  .filter((card) => card.id === adjustingCardId)
+                  .map((card) => (
+                    <div key={card.id} className="mt-2">
+                      <CardAdjustForm
+                        eventId={data.event.id}
+                        card={card}
+                        onDone={() => setAdjustingCardId(null)}
+                      />
+                    </div>
+                  ))}
 
                 <div className="mt-3 flex items-center justify-between text-sm">
                   <span className="text-muted">
@@ -150,6 +207,7 @@ export default function AdminEventDetailPage() {
           <EventStaffSection eventId={data.event.id} />
           {session?.tenantPlan === 'PRO' && <EventCostingSection eventId={data.event.id} />}
           <AdminContractSection eventId={data.event.id} />
+          <EventHistorySection eventId={data.event.id} />
         </div>
       )}
     </main>

@@ -1,5 +1,15 @@
 import type {
   AdminEventDetail,
+  AdminProvider,
+  AdminSponsor,
+  AuditLogPage,
+  CardAdjustmentInput,
+  EventType,
+  ProviderInput,
+  PublicProvider,
+  PublicSponsor,
+  UpdateEventInput,
+  YearReport,
   ChangePasswordInput,
   SalonProfile,
   GuestPassView,
@@ -141,6 +151,85 @@ export const api = {
   },
 
   getSalonProfile: () => request<{ salon: SalonProfile }>('/api/v1/public/salon'),
+
+  // -- Fase 4: edición de eventos, ajustes de tarjeta, auditoría ---------
+
+  updateEvent: (eventId: string, input: UpdateEventInput) =>
+    request<{ event: { id: string; name: string; status: string } }>(
+      `/api/v1/admin/events/${eventId}`,
+      { method: 'PUT', body: JSON.stringify(input) },
+    ),
+
+  adjustCard: (cardId: string, input: CardAdjustmentInput) =>
+    request<{ adjustmentId: string }>(`/api/v1/admin/cards/${cardId}/adjustments`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  getAuditLog: (params: Record<string, string | undefined>) => {
+    const query = new URLSearchParams(
+      Object.entries(params).filter((entry): entry is [string, string] => Boolean(entry[1])),
+    ).toString();
+    return request<AuditLogPage>(`/api/v1/admin/audit${query ? `?${query}` : ''}`);
+  },
+
+  getEventHistory: (eventId: string, cursor?: string) =>
+    request<AuditLogPage>(
+      `/api/v1/admin/events/${eventId}/history${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+    ),
+
+  // -- Fase 4: directorio de proveedores + sponsors ------------------------
+
+  listAdminProviders: () => request<{ providers: AdminProvider[] }>('/api/v1/admin/providers'),
+
+  createProvider: (input: ProviderInput) =>
+    request<{ provider: AdminProvider }>('/api/v1/admin/providers', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  updateProvider: (id: string, input: ProviderInput) =>
+    request<{ provider: AdminProvider }>(`/api/v1/admin/providers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
+
+  deleteProvider: (id: string) =>
+    request<null>(`/api/v1/admin/providers/${id}`, { method: 'DELETE' }),
+
+  listAdminSponsors: () => request<{ sponsors: AdminSponsor[] }>('/api/v1/admin/sponsors'),
+
+  /** Multipart (logo como archivo) — sin el Content-Type JSON de request(). */
+  saveSponsor: async (id: string | null, form: FormData): Promise<{ sponsor: AdminSponsor }> => {
+    const res = await fetch(`${API_URL}/api/v1/admin/sponsors${id ? `/${id}` : ''}`, {
+      method: id ? 'PUT' : 'POST',
+      credentials: 'include',
+      body: form,
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new ApiError(body?.error?.message ?? 'No pudimos guardar el sponsor', res.status);
+    }
+    return body;
+  },
+
+  deleteSponsor: (id: string) =>
+    request<null>(`/api/v1/admin/sponsors/${id}`, { method: 'DELETE' }),
+
+  getPublicProviders: (eventType?: EventType) =>
+    request<{ providers: PublicProvider[] }>(
+      `/api/v1/public/providers${eventType ? `?eventType=${eventType}` : ''}`,
+    ),
+
+  getPublicSponsors: () => request<{ sponsors: PublicSponsor[] }>('/api/v1/public/sponsors'),
+
+  getPortalProviders: () =>
+    request<{ eventTypes: EventType[]; providers: PublicProvider[] }>('/api/v1/portal/providers'),
+
+  // -- Fase 4: reportes -----------------------------------------------------
+
+  getYearReport: (year: number) =>
+    request<{ report: YearReport }>(`/api/v1/admin/reports/year?year=${year}`),
 
   // -- Micrositio de invitados (público, Fase 3) -----------------------
 
@@ -514,3 +603,12 @@ export const api = {
   runReminders: () =>
     request<{ result: ReminderSweepResult }>('/api/v1/admin/reminders/run', { method: 'POST' }),
 };
+
+/**
+ * URL absoluta de un recurso de la API para usar en un <a href>/<img src>
+ * (descargas, logos): la cookie de sesión viaja igual en una navegación
+ * normal, no hace falta fetch+blob — mismo criterio que los contratos.
+ */
+export function apiUrl(path: string): string {
+  return `${API_URL}${path}`;
+}

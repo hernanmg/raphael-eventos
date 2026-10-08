@@ -1,6 +1,8 @@
 import type { IpcStalenessStatus } from '@raphael-eventos/shared';
 import { prisma } from '../db/prisma';
 import { withTenant } from '../db/withTenant';
+import { audit } from './audit';
+import { SYSTEM_ACTOR, runWithActor } from './requestContext';
 
 const SERIES_URL =
   'https://apis.datos.gob.ar/series/api/series/?ids=145.3_INGNACUAL_DICI_M_38&limit=2&sort=desc';
@@ -14,6 +16,39 @@ interface FetchedIpcPeriod {
   /** Puntos porcentuales (la API devuelve fracción, ej. 0.0211 -> 2.11). */
   latestValuePct: number;
   previousValuePct: number;
+}
+
+const SERIES_ID = '145.3_INGNACUAL_DICI_M_38';
+
+export interface IpcSeriesPoint {
+  /** Primer día del mes (UTC). */
+  period: Date;
+  /** Variación intermensual en puntos porcentuales (la API da fracción: 0.0211 -> 2.11). */
+  valuePct: number;
+}
+
+/**
+ * Serie histórica de variación intermensual desde `startDate` (YYYY-MM-DD),
+ * en orden ascendente. Solo la usa el backfill único
+ * (src/scripts/backfillIpc.ts) — mismo dato y misma conversión que
+ * fetchLatestIpcPeriod. Tira error si la API falla: un script manual tiene
+ * que fallar en voz alta, no en silencio como el cron.
+ */
+export async function fetchIpcSeries(startDate: string): Promise<IpcSeriesPoint[]> {
+  const url = `https://apis.datos.gob.ar/series/api/series/?ids=${SERIES_ID}&start_date=${startDate}&limit=1000&sort=asc`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`datos.gob.ar respondió ${res.status}`);
+    const body = (await res.json()) as DatosGobArResponse;
+    return (body.data ?? []).map(([date, fraction]) => ({
+      period: new Date(`${date}T00:00:00.000Z`),
+      valuePct: fraction * 100,
+    }));
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /**
@@ -59,6 +94,11 @@ export async function runIpcAutoFetch(tenantId: string): Promise<void> {
   const fetched = await fetchLatestIpcPeriod();
   if (!fetched) return;
 
+  // Corre fuera de un request: la auditoría lo registra como "sistema".
+  await runWithActor(SYSTEM_ACTOR, () => persistFetchedIpc(tenantId, fetched));
+}
+
+async function persistFetchedIpc(tenantId: string, fetched: FetchedIpcPeriod): Promise<void> {
   await withTenant(tenantId, async (tx) => {
     const lastRow = await tx.ipcIndexValue.findFirst({
       where: { tenantId },
@@ -87,6 +127,25 @@ export async function runIpcAutoFetch(tenantId: string): Promise<void> {
         sourcePreviousValue: fetched.previousValuePct,
         sourceLatestValue: fetched.latestValuePct,
         triggeredById: null,
+      },
+    });
+
+    const row = await tx.ipcIndexValue.findUniqueOrThrow({
+      where: { tenantId_period: { tenantId, period: fetched.period } },
+      select: { id: true },
+    });
+    await audit(tx, tenantId, {
+      entityType: 'IpcIndexValue',
+      entityId: row.id,
+      action: 'CREATE',
+      summary: `IPC automático (datos.gob.ar) para ${fetched.period.toISOString().slice(0, 7)}: +${fetched.latestValuePct}%`,
+      changes: {
+        periodo: fetched.period.toISOString(),
+        variacionPct: fetched.latestValuePct,
+        variacionAnteriorPct: fetched.previousValuePct,
+        indiceAnterior: baseIndex,
+        indiceResultante: indexValue,
+        origen: 'AUTOMATICO',
       },
     });
   });

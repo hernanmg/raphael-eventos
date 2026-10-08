@@ -1,17 +1,22 @@
 import { Router } from 'express';
 import {
+  CardAdjustmentSchema,
   CreateEventSchema,
   CreateIpcEntrySchema,
   RecordPaymentSchema,
+  UpdateEventSchema,
 } from '@raphael-eventos/shared';
 import { requireRole } from '../../middleware/requireRole';
 import { parseBody } from '../../lib/validate';
 import {
   BeneficiaryNotFoundError,
+  CardNotFoundError,
   ClientNotFoundError,
   EventNotFoundError,
   InvalidAllocationError,
+  InvalidCardAdjustmentError,
   addIpcEntry,
+  adjustCard,
   createEvent,
   deletePayment,
   getBeneficiaryReport,
@@ -21,6 +26,7 @@ import {
   listClients,
   listIpcHistory,
   recordPayment,
+  updateEvent,
 } from './admin.service';
 import { getIpcStaleness } from '../../lib/ipc';
 
@@ -47,6 +53,47 @@ adminRouter.post('/events', async (req, res, next) => {
     const event = await createEvent(req.tenantId, req.currentUser!.id, input);
     res.status(201).json({ event: { id: event.id, name: event.name } });
   } catch (err) {
+    next(err);
+  }
+});
+
+// Edición de datos y estado del evento (Fase 4) — trazada en AuditLog.
+adminRouter.put('/events/:eventId', async (req, res, next) => {
+  try {
+    const input = parseBody(UpdateEventSchema, req.body, res);
+    if (!input) return;
+    const event = await updateEvent(req.tenantId, req.params.eventId, input);
+    res.json({ event: { id: event.id, name: event.name, status: event.status } });
+  } catch (err) {
+    if (err instanceof EventNotFoundError) {
+      res.status(404).json({ error: { message: 'Evento no encontrado' } });
+      return;
+    }
+    next(err);
+  }
+});
+
+// Ajuste manual de tarjeta con motivo (Fase 4) — nunca un UPDATE suelto.
+adminRouter.post('/cards/:cardId/adjustments', async (req, res, next) => {
+  try {
+    const input = parseBody(CardAdjustmentSchema, req.body, res);
+    if (!input) return;
+    const adjustment = await adjustCard(
+      req.tenantId,
+      req.params.cardId,
+      req.currentUser!.id,
+      input,
+    );
+    res.status(201).json({ adjustmentId: adjustment.id });
+  } catch (err) {
+    if (err instanceof CardNotFoundError) {
+      res.status(404).json({ error: { message: 'Tarjeta no encontrada' } });
+      return;
+    }
+    if (err instanceof InvalidCardAdjustmentError) {
+      res.status(400).json({ error: { message: err.message } });
+      return;
+    }
     next(err);
   }
 });

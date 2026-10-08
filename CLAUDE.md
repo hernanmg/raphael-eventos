@@ -19,10 +19,13 @@ De las 4 fases descritas en `docs/01-propuesta-plataforma-digital.md`, la
 
 La **Fase 2 ("Cobrar y vender mejor")** y la **Fase 3 (Invitados)** están
 completas — ver las secciones de abajo (la de Fase 3 está al final de este
-archivo). Sigue **explícitamente fuera de alcance** (no implementar
-sin preguntar antes, aunque esté documentado en `docs/`): directorio de
-proveedores, mural de fotos nativo / playlist colaborativa, cualquier cosa
-de pagos/facturación real (gateway de cobro).
+archivo). La **Fase 4** (directorio de proveedores, reportes/exportaciones,
+trazabilidad, edición de eventos) también está implementada — ver "Fase 4"
+al final de este archivo. Sigue **explícitamente fuera de
+alcance** (no implementar sin preguntar antes, aunque esté documentado en
+`docs/`): mural de fotos nativo / playlist colaborativa, onboarding
+multi-tenant (alta de salones, superadmin, cobro de Básica/Pro), cualquier
+cosa de pagos/facturación real (gateway de cobro).
 
 ## Fase 2 — costeo y personal (implementado)
 
@@ -1226,4 +1229,164 @@ el bundle principal a 512 kB (arriba del aviso de Vite); con lazy quedó en
 **Fuera de alcance, sin cambios:** mural de fotos nativo, playlist,
 directorio de proveedores, envío de emails/WhatsApp desde el sistema (los
 links se comparten con `wa.me`/`mailto:`/copiar).
+
+## Fase 4 — proveedores, reportes, trazabilidad (implementada)
+
+Antes de arrancar se verificó (código + API levantada) que CRM, calendario,
+recordatorios y contratos de la Fase 2 funcionan — los reportes leen de ahí.
+**Fuera de esta fase:** playlist colaborativa (sigue diferida, link
+externo/Instagram) y onboarding multi-tenant (proyecto aparte, para cuando
+se acerque la venta a otros salones).
+
+**Modelo** (migración `20261008120000_fase4`, con RLS):
+
+- `Provider` (Plan Básica) — directorio de proveedores aliados, curado por
+  Fede por ABM manual (sin importador): nombre, `category` (rubro libre con
+  sugerencias de los ya cargados), contacto, `eventTypes EventType[]` (uno o
+  más), `referralPct`/`referralNote` (**solo referencia** para Fede — no
+  mueve dinero, misma lógica que "sin pagos en la app"; **nunca** salen en
+  endpoints públicos ni en el portal), `active`, `sortOrder`. Se muestran en
+  la landing pública y en el portal filtrados por el tipo de evento
+  contratado.
+- `Sponsor` — bloque de contenido simple de la landing (logo + link), no un
+  sistema de gestión. Logo **subido como archivo** reusando la interfaz de
+  storage de contratos (no link externo: los de Instagram vencen).
+  `linkUrl` solo http(s), mismo criterio que `photosUrl`.
+- `AuditLog` — **append-only a nivel de base**: `app_user` solo tiene
+  `SELECT, INSERT` (ni un bug de la app puede alterar el historial).
+  `actorLabel` guarda una foto del nombre/email al momento (no depende de un
+  join a `User`); `actorUserId` null = sistema (cron de IPC). Se escribe
+  **en la misma transacción** que el cambio. `eventId` opcional para el
+  "Historial" de cada evento; `changes` Json `{campo: {de, a}}`.
+- `EventCardAdjustment` — **ajuste manual de tarjeta trazable con motivo**
+  (renegociación), distinto del ajuste automático por IPC. No es un UPDATE
+  suelto: cada ajuste guarda cantidad/valor base/período base anteriores y
+  nuevos + `reason` obligatorio + quién, y re-basa la tarjeta (nuevo
+  `baseValue` en el período actual — desde ahí sigue indexando por IPC).
+  El saldo queda reconstruible paso a paso: IPC → `IpcIndexValue`, manual →
+  `EventCardAdjustment`. No se puede bajar la cantidad por debajo de las
+  unidades ya asignadas a pagos.
+
+**Trazado en `AuditLog`:** eventos (alta con valores iniciales de tarjetas,
+edición de datos, cambio de estado, hora/fotos del micrositio), ajustes de
+tarjeta, pagos (alta con asignaciones y aviso de tope de seña; **baja con el
+monto borrado** — antes borrar un pago no dejaba rastro, una ausencia real
+para algo que registra plata), IPC (manual con actor y automático como
+sistema), costeo (config de/a, gastos fijos de/a, altas/bajas de rubros,
+líneas de insumo/servicio por evento), personal (alta/edición con
+compensación de/a, alta/baja, acceso de puerta dado/reseteado — nunca la
+contraseña —, asignaciones, horas, liquidaciones, comisiones adelantadas),
+contratos (subida/reemplazo/borrado). **No se traza:** logins, búsquedas,
+cambios de estado del CRM (comercial, sin plata en juego), altas/bajas de
+invitados ni check-in (`GuestCheckIn` ya es su propio registro). Pantalla
+`/admin/auditoria` (filtros fecha/usuario/área/evento) + "Historial" en el
+detalle de cada evento.
+
+**Edición de eventos (sumada a esta fase):** nombre, fecha, titular
+(nombre/email/teléfono), mínimo de invitados (egreso) y estado
+(`ACTIVO`/`FINALIZADO`/`CANCELADO`); el tipo no se edita (define la
+estructura de beneficiaries). **Cambio de titular:** la lógica de alta por
+email (`linkExistingAccountByEmail`) solo agrega vínculos — no cubría este
+caso: el titular viejo seguiría viendo el evento. Al cambiar
+`titularEmail` se borra el `EventAccount` TITULAR anterior y se vincula el
+nuevo si ya tiene cuenta (si no, lo agarra el matching normal al
+registrarse). Un evento no `ACTIVO` sale de ocupación/comprometido, del
+micrositio, del check-in y del barrido de recordatorios.
+
+**Reportes (sin tablas nuevas — consultas sobre lo existente):** ocupación
+(eventos confirmados por mes/tipo + consultas tentativas del calendario),
+comprometido vs. cobrado en dos vistas (por fecha de evento: valor de
+tarjetas de esos eventos vs. lo cobrado de ellos; por fecha de pago:
+cobranza del período), interanual (mismo período del año anterior,
+**nominal y ajustado por IPC** con el índice guardado). Informativos, no
+contables. Los de margen/costeo ya existen en el módulo Pro — no se
+reconstruyen. **Exportaciones:** XLSX (`exceljs`) + CSV de cada reporte y de
+las listas de eventos/tarjetas/pagos/invitados; PDF vía vista imprimible +
+`window.print()` (mismo criterio que el reporte por familia).
+
+### Fase 4 — lo construido (verificado con curl + Playwright)
+
+- **Auditoría** (`lib/audit.ts` + `lib/requestContext.ts`): `audit(tx, ...)`
+  siempre con el `tx` del cambio. El actor viaja en un `AsyncLocalStorage`
+  que carga `requireRole` (`runWithActor`) — los services no reciben un
+  parámetro `actor`; los crons corren con `SYSTEM_ACTOR` (ver
+  `lib/ipc.ts`). **Todo cambio nuevo sobre algo trazado tiene que llamar a
+  `audit()` dentro de su transacción** (helpers `diffFields`/`snapshot`
+  normalizan Decimal/Date). Verificado a nivel de base que `app_user` recibe
+  "permission denied" en UPDATE/DELETE de `audit_logs` y
+  `event_card_adjustments`. Visor: `GET /admin/audit` (filtros área/usuario/
+  fechas, paginado por cursor `createdAt`) → `/admin/auditoria`;
+  `GET /admin/events/:id/history` → sección "Historial" del detalle.
+- **Edición de eventos**: `PUT /admin/events/:id` (`updateEvent`) +
+  `EventEditSection`. Re-vinculación de titular verificada: el titular viejo
+  pierde el `EventAccount`, el nuevo lo gana si ya tiene cuenta. Un evento
+  `CANCELADO` sale del calendario (`crm.service`), del barrido de
+  recordatorios (solo `ACTIVO`), de los reportes, del micrositio y del
+  check-in; `FINALIZADO` sigue ocupando su fecha en el calendario.
+- **Ajuste de tarjeta**: `POST /admin/cards/:cardId/adjustments`
+  (`adjustCard`) + `CardAdjustForm` ("Ajustar" en cada fila de tarjetas).
+  Motivo obligatorio; rechaza bajar la cantidad debajo de lo asignado a pagos.
+- **Proveedores/sponsors** (`modules/providers/`): admin CRUD
+  (`/admin/providers`, `/admin/sponsors` multipart), públicos
+  `GET /public/providers?eventType=`, `GET /public/sponsors`,
+  `GET /public/sponsors/:id/logo`, y `GET /portal/providers` (tipos de los
+  eventos del cliente, sin cancelados). Logo: PNG/JPG/WEBP **verificado por
+  magic bytes** (el mimetype del navegador se falsifica; SVG excluido: puede
+  llevar scripts), ≤1 MB, en `sponsorLogoStorage` (`lib/storage.ts`
+  generalizado a `FileStorage` por carpeta). El logo se sirve con
+  `Cross-Origin-Resource-Policy: cross-origin` — helmet pone `same-origin`
+  por default y la web (otro origen) no podía mostrar la imagen.
+  Pantallas: `/admin/proveedores`, sección "Proveedores recomendados" de la
+  landing (con filtro por tipo) + franja de sponsors, y sección en
+  `/portal`. Ambas secciones se ocultan si no hay datos cargados.
+- **Reportes**: `GET /admin/reports/year?year=` (`reports.service.ts`) →
+  `/admin/reportes`. Exportaciones (`lib/exporter.ts`, una definición de
+  columnas → XLSX con `exceljs` o CSV con `;` + BOM + coma decimal + escape
+  de fórmulas): `/admin/reports/year/export`, `/admin/exports/events|cards|
+  payments`, `/admin/events/:id/guests/export` (`?format=xlsx|csv`). PDF =
+  `window.print()` (el `SiteHeader` tiene `print:hidden`).
+- **Carga diferida del panel admin**: todas las pantallas `/admin/*` van con
+  `React.lazy` (`Suspense` en `Layout`) — con las pantallas nuevas el bundle
+  principal había vuelto a 522 kB; quedó en ~412 kB.
+
+**Backfill único del historial de IPC** (`src/scripts/backfillIpc.ts`,
+`npm run ipc:backfill -w apps/api [-- --dry-run]`; NO es un proceso
+recurrente — los períodos nuevos los sigue trayendo el cron). Existe porque
+el interanual necesita el índice de los mismos meses del año anterior y la
+base solo tenía IPC desde el arranque. Trae la serie de datos.gob.ar
+(`lib/ipc.ts#fetchIpcSeries`) desde enero del año anterior al dato más viejo
+del tenant y la guarda en `IpcIndexValue` + `AuditLog` (actor "Sistema
+(backfill único…)"). Reglas: nunca modifica filas existentes; encadena
+desde la fila existente más vieja (hacia atrás `idx(m-1) = idx(m)/(1+v(m))`,
+re-anclando en cada fila existente); no agrega períodos posteriores al
+último guardado (eso es del cron); rellena huecos solo si ninguna tarjeta
+tiene `basePeriod` en el tramo. Idempotente. Corrido el 2026-10-08 en dev:
+19 períodos (2025-01 → 2026-05, más el hueco 2026-07/08), saldos de todos
+los eventos verificados idénticos antes/después.
+
+**El seed ya no carga IPC** (decisión del usuario, 2026-10-08). Antes
+`prisma/seed.ts` sembraba dos filas ficticias (2026-06 = 100, 2026-09 =
+112,4 — 12,4% en 3 meses, en la semántica vieja de "niveles") que inflaban
+los saldos; en un deploy real habrían plantado inflación falsa. Ahora el
+orden de puesta en marcha es `db:seed` → `ipc:backfill` (README paso 6); el
+seed lo recuerda al terminar. La base de dev se reconstruyó así: se
+borraron todas las filas de IPC y se corrió el backfill sobre el tenant
+vacío (base 100 en 2025-01 → 156,11 en 2026-08). Los saldos demo cambiaron
+a propósito (ej. 15 de Martina: total 2.191.800 → 2.024.257, ajuste
+jun→ago real +3,8% en vez del ficticio +12,4%).
+
+- Reporte interanual: un mes posterior al último IPC publicado da "sin IPC"
+  (antes usaba el último índice disponible y subestimaba el ajuste).
+- **Tests de la API y el IPC del tenant real:** `portal.test.ts` creaba IPC
+  en 2026-06/2026-09 (choca con el índice único tenant+período apenas el
+  tenant tiene IPC real) y asumía "sin IPC → factor 1". Ahora sus índices
+  van en 2099, las tarjetas "sin ajuste" usan `basePeriod` 2100 (posterior a
+  cualquier índice → factor 1) y el caso "sin IPC" se prueba sobre
+  `indexFactor([])`. `vitest.config.ts` de la API corre los archivos **en
+  serie** (`fileParallelism: false`): todos comparten base y tenant, y en
+  paralelo un IPC de 2099 de un archivo cambia el "último índice" de otro.
+
+Datos de prueba de la verificación borrados (evento de prueba, proveedores,
+sponsors y sus archivos, `audit_logs`); el directorio arranca vacío para que
+Fede cargue su lista real.
 

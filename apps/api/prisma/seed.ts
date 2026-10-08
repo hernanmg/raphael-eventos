@@ -28,8 +28,6 @@ const ADMIN_USER = {
 // IDs fijos (no cuid) para que el seed sea idempotente vía upsert, sin tener
 // que buscar cada fila por sus campos únicos primero.
 const SEED_IDS = {
-  ipcBase: 'seed-ipc-2026-06',
-  ipcLatest: 'seed-ipc-2026-09',
   eventQuince: 'seed-event-quince-demo',
   beneficiaryQuince: 'seed-beneficiary-quince-demo',
   paymentQuince: 'seed-payment-quince-demo',
@@ -86,8 +84,12 @@ const FIXED_COST_CATEGORIES: { name: string; monthlyAmount: number; guestScaled?
   { name: 'Seguro', monthlyAmount: 50000 },
 ];
 
-const IPC_BASE_PERIOD = new Date('2026-06-01T00:00:00.000Z');
-const IPC_LATEST_PERIOD = new Date('2026-09-01T00:00:00.000Z');
+// Período base (primer día de mes) de las tarjetas demo. El IPC NO lo
+// siembra este archivo: antes cargaba dos filas ficticias (2026-06 = 100,
+// 2026-09 = 112,4 — 12,4% en 3 meses) que inflaban los saldos; en un deploy
+// real eso habría plantado inflación falsa. La serie real sale de
+// `npm run ipc:backfill -w apps/api` (datos.gob.ar) después del seed.
+const CARDS_BASE_PERIOD = new Date('2026-06-01T00:00:00.000Z');
 
 async function main() {
   const slug = process.env.TENANT_SLUG ?? 'raphael-eventos';
@@ -132,37 +134,6 @@ async function main() {
       passwordHash: adminPasswordHash,
       fullName: ADMIN_USER.fullName,
       role: 'ADMIN',
-    },
-  });
-
-  // Índice IPC: dos períodos, para que el portal muestre el valor "hoy"
-  // distinto del valor base (simula lo que en producción escribiría el job
-  // programado contra datos.gob.ar — ver docs/costos/Arquitectura y costos.md
-  // — que todavía no está construido).
-  await prisma.ipcIndexValue.upsert({
-    where: { id: SEED_IDS.ipcBase },
-    update: {},
-    create: {
-      id: SEED_IDS.ipcBase,
-      tenantId: tenant.id,
-      period: IPC_BASE_PERIOD,
-      indexValue: 100,
-      sourcePreviousValue: 97.2,
-      sourceLatestValue: 100,
-      fetchedAt: IPC_BASE_PERIOD,
-    },
-  });
-  await prisma.ipcIndexValue.upsert({
-    where: { id: SEED_IDS.ipcLatest },
-    update: {},
-    create: {
-      id: SEED_IDS.ipcLatest,
-      tenantId: tenant.id,
-      period: IPC_LATEST_PERIOD,
-      indexValue: 112.4,
-      sourcePreviousValue: 108.9,
-      sourceLatestValue: 112.4,
-      fetchedAt: IPC_LATEST_PERIOD,
     },
   });
 
@@ -270,7 +241,7 @@ async function main() {
         cardType: card.cardType,
         quantity: card.quantity,
         baseValue: card.baseValue,
-        basePeriod: IPC_BASE_PERIOD,
+        basePeriod: CARDS_BASE_PERIOD,
       },
     });
   }
@@ -381,7 +352,7 @@ async function main() {
         cardType: 'ADULTO',
         quantity: 25,
         baseValue: beneficiaryData.baseValue,
-        basePeriod: IPC_BASE_PERIOD,
+        basePeriod: CARDS_BASE_PERIOD,
       },
     });
   }
@@ -402,6 +373,9 @@ async function main() {
   console.log(`Usuario demo: ${DEMO_USER.email} / ${DEMO_USER.password}`);
   console.log(`Usuario admin: ${ADMIN_USER.email} / ${ADMIN_USER.password}`);
   console.log(`Eventos demo: "${eventQuince.name}" (propio) y "${eventEgreso.name}" (agregado)`);
+  console.log(
+    'IPC: el seed no lo carga — corré `npm run ipc:backfill -w apps/api` para traer la serie real de datos.gob.ar.',
+  );
 }
 
 main()

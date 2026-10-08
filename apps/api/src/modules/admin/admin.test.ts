@@ -240,10 +240,10 @@ describe('admin.service — detalle de evento (admin ve todas las familias de un
 
 describe('admin.service — IPC', () => {
   it('el primer período cargado para el tenant arranca en índice 100', async () => {
-    // Nota: si el seed ya cargó IPC para "raphael-eventos", este test asume
-    // un tenant limpio de IPC — se corre contra un período muy futuro para
-    // no chocar con lo sembrado, pero el índice sigue encadenando desde el
-    // último existente (documentado, no es un bug).
+    // Nota: el tenant real ya tiene IPC (backfill de datos.gob.ar + cron), así
+    // que este test se corre contra un período muy futuro para no chocar con
+    // la serie real; el índice sigue encadenando desde el último existente
+    // (documentado, no es un bug).
     const entry = await addIpcEntry(tenantId, adminUserId, {
       period: '2099-01-01',
       sourcePreviousValue: 100,

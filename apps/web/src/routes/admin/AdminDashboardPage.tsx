@@ -94,6 +94,24 @@ export default function AdminDashboardPage() {
             </Link>
           )}
           <Link
+            to="/admin/reportes"
+            className="rounded-full border border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
+          >
+            Reportes
+          </Link>
+          <Link
+            to="/admin/proveedores"
+            className="rounded-full border border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
+          >
+            Proveedores
+          </Link>
+          <Link
+            to="/admin/auditoria"
+            className="rounded-full border border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
+          >
+            Auditoría
+          </Link>
+          <Link
             to="/admin/ipc"
             className="rounded-full border border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
           >

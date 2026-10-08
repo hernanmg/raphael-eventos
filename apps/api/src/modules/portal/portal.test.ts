@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '../../db/prisma';
 import { withTenant } from '../../db/withTenant';
 import { env } from '../../env';
+import { indexFactor } from '../../lib/financials';
 import { EventNotAccessibleError, getUserEventDetail, listUserEvents } from './portal.service';
 
 // Mismo criterio que auth.test.ts: corre contra el Postgres local real y
@@ -10,6 +11,13 @@ import { EventNotAccessibleError, getUserEventDetail, listUserEvents } from './p
 // event/eventBeneficiary/eventCard/payment/ipcIndexValue/eventAccount con id
 // prefijado "test-portal-"), nunca el usuario demo ni los eventos demo del
 // seed.
+//
+// IPC: el tenant real tiene su propia serie de IpcIndexValue (backfill de
+// datos.gob.ar + cron), única por (tenant, período). Por eso los índices de
+// estos tests van en 2099 (último índice del tenant mientras corre el test,
+// sin chocar con períodos reales) y las tarjetas "sin ajuste" usan un
+// basePeriod en 2100 (posterior a cualquier índice cargado → factor 1),
+// mismo truco que admin.test.ts. No dependen de qué IPC haya guardado.
 const TEST_EMAIL_DOMAIN = '@example.com';
 const TEST_ID_PREFIX = 'test-portal-';
 
@@ -55,7 +63,7 @@ describe('portal.service — evento propio (titular de QUINCE)', () => {
         data: {
           id: `${TEST_ID_PREFIX}ipc-base`,
           tenantId,
-          period: new Date('2026-06-01'),
+          period: new Date('2099-01-01'),
           indexValue: 100,
           sourcePreviousValue: 98,
           sourceLatestValue: 100,
@@ -65,7 +73,7 @@ describe('portal.service — evento propio (titular de QUINCE)', () => {
         data: {
           id: `${TEST_ID_PREFIX}ipc-latest`,
           tenantId,
-          period: new Date('2026-09-01'),
+          period: new Date('2099-04-01'),
           indexValue: 110,
           sourcePreviousValue: 105,
           sourceLatestValue: 110,
@@ -92,7 +100,7 @@ describe('portal.service — evento propio (titular de QUINCE)', () => {
           cardType: 'ADULTO',
           quantity: 10,
           baseValue: 1000,
-          basePeriod: new Date('2026-06-01'),
+          basePeriod: new Date('2099-01-01'),
         },
       });
       await tx.payment.create({
@@ -129,7 +137,11 @@ describe('portal.service — evento propio (titular de QUINCE)', () => {
     expect(detail.own?.percentPaid).toBe(50);
   });
 
-  it('sin ningún IpcIndexValue cargado, el factor es 1 (no rompe la pantalla)', async () => {
+  it('sin ningún IpcIndexValue cargado, el factor es 1 (no rompe la pantalla)', () => {
+    expect(indexFactor([], new Date('2026-01-01'))).toBe(1);
+  });
+
+  it('una tarjeta con período base posterior al último IPC vale su valor base', async () => {
     const user = await createTestUser('sinipc@example.com');
 
     const detail = await withTenant(tenantId, async (tx) => {
@@ -147,7 +159,7 @@ describe('portal.service — evento propio (titular de QUINCE)', () => {
           cardType: 'ADULTO',
           quantity: 5,
           baseValue: 2000,
-          basePeriod: new Date('2026-01-01'),
+          basePeriod: new Date('2100-01-01'),
         },
       });
       await tx.eventAccount.create({
@@ -203,7 +215,7 @@ describe('portal.service — titular de EGRESO (agregado, sin detalle por famili
             cardType: 'ADULTO',
             quantity: 1,
             baseValue: amount,
-            basePeriod: new Date('2026-01-01'),
+            basePeriod: new Date('2100-01-01'),
           },
         });
       }
@@ -224,7 +236,7 @@ describe('portal.service — titular de EGRESO (agregado, sin detalle por famili
 
     expect(detail.scope).toBe('aggregate');
     expect(detail.aggregate?.beneficiaryCount).toBe(2);
-    expect(detail.aggregate?.totalValue).toBe(3000); // 1000 + 2000, sin IPC cargado -> factor 1
+    expect(detail.aggregate?.totalValue).toBe(3000); // 1000 + 2000, basePeriod 2100 -> factor 1
     expect(detail.own).toBeUndefined();
   });
 });

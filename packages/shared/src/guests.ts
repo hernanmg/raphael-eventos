@@ -4,7 +4,7 @@
 import { z } from 'zod';
 import type { EventType } from './enums';
 import type { SalonProfile } from './salon';
-import { optionalText } from './zodHelpers';
+import { httpUrl, optionalText } from './zodHelpers';
 
 /** Confirmación de asistencia desde el link de invitación (público, sin cuenta). */
 export const GuestRsvpSchema = z.object({
@@ -26,15 +26,6 @@ export const AdminGuestInputSchema = GuestInputSchema.extend({
   beneficiaryId: optionalText(z.string().trim().min(1)),
 });
 export type AdminGuestInput = z.infer<typeof AdminGuestInputSchema>;
-
-// Solo http(s): `z.string().url()` acepta cualquier esquema que parsee
-// `new URL()` (incluido `javascript:`), y esto termina en un href público.
-const httpUrl = z
-  .string()
-  .trim()
-  .max(500)
-  .url('Link inválido')
-  .refine((v) => /^https?:\/\//i.test(v), 'El link tiene que empezar con http:// o https://');
 
 /** Datos del micrositio que carga el admin: hora de inicio y link de fotos. */
 export const EventPublicInfoSchema = z.object({

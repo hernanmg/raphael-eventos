@@ -3,6 +3,7 @@ import type {
   CardType,
   EmployeeContractType,
   EmployeeVariableType,
+  EventStatus,
   EventType,
   LeadStatus,
 } from '@raphael-eventos/shared';
@@ -82,3 +83,23 @@ export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
   GANADO: 'Ganado',
   PERDIDO: 'Perdido',
 };
+
+export const EVENT_STATUS_LABELS: Record<EventStatus, string> = {
+  ACTIVO: 'Activo',
+  FINALIZADO: 'Finalizado',
+  CANCELADO: 'Cancelado',
+};
+
+const dateTimeFormatter = new Intl.DateTimeFormat('es-AR', {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/** Instante con hora (auditoría), en la zona local. */
+export function formatDateTime(iso: string): string {
+  return dateTimeFormatter.format(new Date(iso));
+}

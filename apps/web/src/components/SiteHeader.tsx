@@ -7,7 +7,7 @@ export function SiteHeader() {
   const logout = useLogout();
 
   return (
-    <header className="flex items-center justify-between border-b border-line bg-paper px-6 py-4">
+    <header className="flex items-center justify-between border-b border-line bg-paper px-6 py-4 print:hidden">
       <Link to="/" className="flex items-center gap-3">
         <span className="flex h-9 w-9 items-center justify-center rounded-full bg-ink font-serif text-sm font-bold text-white">
           R.

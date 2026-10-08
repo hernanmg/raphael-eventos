@@ -47,6 +47,15 @@ tomó cada decisión técnica, ver [`CLAUDE.md`](./CLAUDE.md) y la carpeta [`doc
    npm run db:seed -w apps/api
    ```
 
+6. Traer el historial real de IPC (datos.gob.ar). El seed no carga IPC a
+   propósito: es un script de una sola vez, idempotente — los meses nuevos
+   los trae después el job diario de la API. `-- --dry-run` muestra el plan
+   sin escribir.
+
+   ```bash
+   npm run ipc:backfill -w apps/api
+   ```
+
 ## Correr el backend
 
 ```bash

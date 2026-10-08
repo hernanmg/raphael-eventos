@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useSession } from '../../hooks/useSession';
 import { useEvents } from '../../hooks/useEvents';
 import { EventSummaryCard } from './EventSummaryCard';
+import { PortalProvidersSection } from './PortalProvidersSection';
 
 export default function PortalEventsPage() {
   const { data: session } = useSession();
@@ -45,6 +46,7 @@ export default function PortalEventsPage() {
         </Link>
         .
       </p>
+      <PortalProvidersSection />
     </main>
   );
 }

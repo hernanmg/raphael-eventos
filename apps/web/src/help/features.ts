@@ -212,4 +212,53 @@ export const helpFeatures: HelpFeature[] = [
     path: '/checkin',
     keywords: ['check-in', 'puerta', 'escanear', 'qr', 'ingreso', 'reingreso'],
   },
+  {
+    id: 'admin-editar-evento',
+    title: 'Editar evento y ajustar tarjetas',
+    purpose:
+      'Solo para admin/vendedor. Desde el detalle del evento editás nombre, fecha, titular y estado (activo, finalizado o cancelado — un cancelado sale del calendario, reportes y recordatorios). Las tarjetas se ajustan con un motivo obligatorio (renegociación), que queda registrado aparte del ajuste automático por IPC.',
+    path: '/admin',
+    keywords: ['editar', 'cancelar', 'titular', 'ajuste', 'renegociacion', 'tarjetas'],
+  },
+  {
+    id: 'admin-proveedores',
+    title: 'Proveedores y sponsors',
+    purpose:
+      'Solo para admin/vendedor. Directorio de proveedores aliados (rubro, contacto y tipos de evento) que se muestra en la landing y en el portal de cada cliente según su evento, y sponsors (logo + link) para la landing. La comisión de referencia es solo una nota interna: no genera cobros ni se muestra al público.',
+    path: '/admin/proveedores',
+    keywords: ['proveedores', 'fotografo', 'decoracion', 'sonido', 'sponsors', 'directorio'],
+  },
+  {
+    id: 'portal-proveedores',
+    title: 'Proveedores recomendados',
+    purpose:
+      'En tu portal ves los proveedores de confianza del salón para el tipo de evento que contrataste.',
+    path: '/portal',
+    keywords: ['proveedores', 'recomendados', 'fotografo', 'decoracion'],
+  },
+  {
+    id: 'admin-reportes',
+    title: 'Reportes y exportaciones',
+    purpose:
+      'Solo para admin/vendedor. Ocupación por mes, comprometido vs. cobrado y comparación con el año anterior ajustada por IPC. Exportás el reporte y las listas de eventos, tarjetas y pagos a Excel o CSV, o lo imprimís como PDF. La lista de invitados se exporta desde cada evento.',
+    path: '/admin/reportes',
+    keywords: [
+      'reportes',
+      'ocupacion',
+      'cobranza',
+      'excel',
+      'csv',
+      'pdf',
+      'exportar',
+      'interanual',
+    ],
+  },
+  {
+    id: 'admin-auditoria',
+    title: 'Auditoría',
+    purpose:
+      'Solo para admin/vendedor. Quién cambió qué y cuándo: tarjetas, pagos (incluidas las bajas), IPC, costeo, personal, eventos y contratos. Cada evento tiene además su propio historial. El registro no se puede editar ni borrar.',
+    path: '/admin/auditoria',
+    keywords: ['auditoria', 'historial', 'trazabilidad', 'cambios', 'quien'],
+  },
 ];

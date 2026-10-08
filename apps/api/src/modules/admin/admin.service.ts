@@ -3,15 +3,18 @@ import type {
   BeneficiaryReport,
   ClientDetail,
   ClientListItem,
+  CardAdjustmentInput,
   CreateEventInput,
   CreateIpcEntryInput,
   DashboardSummary,
   IpcHistoryEntry,
   RecordPaymentInput,
   RecordPaymentResult,
+  UpdateEventInput,
 } from '@raphael-eventos/shared';
 import type { Prisma } from '@prisma/client';
 import { withTenant } from '../../db/withTenant';
+import { audit, diffFields, money, snapshot } from '../../lib/audit';
 import {
   computeAggregateFinancials,
   computeBeneficiaryFinancials,
@@ -22,6 +25,8 @@ export class EventNotFoundError extends Error {}
 export class BeneficiaryNotFoundError extends Error {}
 export class InvalidAllocationError extends Error {}
 export class ClientNotFoundError extends Error {}
+export class CardNotFoundError extends Error {}
+export class InvalidCardAdjustmentError extends Error {}
 
 function firstOfCurrentMonth(): Date {
   const now = new Date();
@@ -147,7 +152,171 @@ export async function createEvent(tenantId: string, adminUserId: string, input: 
       );
     }
 
+    await audit(tx, tenantId, {
+      entityType: 'Event',
+      entityId: event.id,
+      eventId: event.id,
+      action: 'CREATE',
+      summary: `Alta del evento "${event.name}"`,
+      changes: {
+        ...snapshot(event, [
+          'type',
+          'name',
+          'eventDate',
+          'titularName',
+          'titularEmail',
+          'minGuests',
+        ]),
+        tarjetas: input.cards
+          .filter((card) => card.quantity > 0)
+          .map((card) => ({
+            tipo: card.cardType,
+            cantidad: card.quantity,
+            valorBase: card.baseValue,
+          })),
+        ...(input.type === 'EGRESO' ? { alumnos: input.alumnos.length } : {}),
+      },
+    });
+
     return event;
+  });
+}
+
+/**
+ * Edición de un evento ya creado (Fase 4). El tipo no se edita. Cambiar el
+ * titular re-vincula el portal: `linkExistingAccountByEmail` solo AGREGA
+ * vínculos, así que sin esto el titular viejo seguiría viendo el evento.
+ * Se borra el EventAccount TITULAR anterior y se vincula el nuevo si ya
+ * tiene cuenta (si no, lo agarra auth.service.ts#linkPendingEvents al
+ * registrarse, que busca por Event.titularEmail).
+ */
+export async function updateEvent(tenantId: string, eventId: string, input: UpdateEventInput) {
+  return withTenant(tenantId, async (tx) => {
+    const before = await tx.event.findUnique({
+      where: { id: eventId },
+      include: { beneficiaries: { select: { id: true }, take: 2 } },
+    });
+    if (!before || before.tenantId !== tenantId) throw new EventNotFoundError();
+
+    const data = {
+      name: input.name,
+      eventDate: input.eventDate ? new Date(input.eventDate) : null,
+      titularName: input.titularName ?? null,
+      titularEmail: input.titularEmail,
+      titularPhone: input.titularPhone ?? null,
+      minGuests: before.type === 'EGRESO' ? (input.minGuests ?? null) : null,
+      status: input.status,
+    };
+    const changes = diffFields(before, data, [
+      'name',
+      'eventDate',
+      'titularName',
+      'titularEmail',
+      'titularPhone',
+      'minGuests',
+      'status',
+    ]);
+    if (!changes) return before;
+
+    const event = await tx.event.update({ where: { id: eventId }, data });
+
+    if (before.titularEmail !== input.titularEmail) {
+      await tx.eventAccount.deleteMany({ where: { tenantId, eventId, role: 'TITULAR' } });
+      const beneficiaryId = before.type === 'EGRESO' ? null : (before.beneficiaries[0]?.id ?? null);
+      await linkExistingAccountByEmail(
+        tx,
+        tenantId,
+        input.titularEmail,
+        eventId,
+        beneficiaryId,
+        'TITULAR',
+      );
+    }
+
+    const statusChanged = before.status !== input.status;
+    await audit(tx, tenantId, {
+      entityType: 'Event',
+      entityId: eventId,
+      eventId,
+      action: 'UPDATE',
+      summary: statusChanged
+        ? `Evento "${event.name}" pasó a ${input.status}`
+        : `Edición del evento "${event.name}"`,
+      changes,
+    });
+    return event;
+  });
+}
+
+/**
+ * Ajuste MANUAL de una tarjeta (renegociación) — Fase 4. Nunca un UPDATE
+ * suelto: deja un EventCardAdjustment (append-only en la base) con el
+ * antes/después + motivo, y re-basa la tarjeta: `baseValue` = valor vigente
+ * desde hoy, `basePeriod` = mes actual (desde ahí sigue indexando por IPC).
+ * Así el saldo es reconstruible: IPC → IpcIndexValue, manual → acá. No deja
+ * bajar la cantidad por debajo de las unidades ya asignadas a pagos.
+ */
+export async function adjustCard(
+  tenantId: string,
+  cardId: string,
+  adminUserId: string,
+  input: CardAdjustmentInput,
+) {
+  return withTenant(tenantId, async (tx) => {
+    const card = await tx.eventCard.findUnique({
+      where: { id: cardId },
+      include: { beneficiary: { select: { id: true, label: true, eventId: true } } },
+    });
+    if (!card || card.tenantId !== tenantId) throw new CardNotFoundError();
+
+    const allocated = await tx.paymentCardAllocation.aggregate({
+      where: { tenantId, cardType: card.cardType, payment: { beneficiaryId: card.beneficiaryId } },
+      _sum: { quantity: true },
+    });
+    const paidUnits = allocated._sum.quantity ?? 0;
+    if (input.quantity < paidUnits) {
+      throw new InvalidCardAdjustmentError(
+        `Ya hay ${paidUnits} tarjeta(s) de este tipo asignadas a pagos — la cantidad no puede ser menor`,
+      );
+    }
+
+    const newBasePeriod = firstOfCurrentMonth();
+    const adjustment = await tx.eventCardAdjustment.create({
+      data: {
+        tenantId,
+        cardId,
+        previousQuantity: card.quantity,
+        newQuantity: input.quantity,
+        previousBaseValue: card.baseValue,
+        newBaseValue: input.unitValue,
+        previousBasePeriod: card.basePeriod,
+        newBasePeriod,
+        reason: input.reason,
+        createdById: adminUserId,
+      },
+    });
+    await tx.eventCard.update({
+      where: { id: cardId },
+      data: { quantity: input.quantity, baseValue: input.unitValue, basePeriod: newBasePeriod },
+    });
+
+    const who = card.beneficiary.label ? ` (${card.beneficiary.label})` : '';
+    await audit(tx, tenantId, {
+      entityType: 'EventCard',
+      entityId: cardId,
+      eventId: card.beneficiary.eventId,
+      action: 'UPDATE',
+      summary: `Ajuste manual de tarjeta ${card.cardType}${who}: ${input.reason}`,
+      changes: {
+        ajusteId: adjustment.id,
+        tipo: 'MANUAL',
+        motivo: input.reason,
+        cantidad: { de: card.quantity, a: input.quantity },
+        valorBase: { de: Number(card.baseValue), a: input.unitValue },
+        periodoBase: { de: card.basePeriod.toISOString(), a: newBasePeriod.toISOString() },
+      },
+    });
+    return adjustment;
   });
 }
 
@@ -229,6 +398,7 @@ export async function getEventDetailForAdmin(
       status: event.status,
       titularName: event.titularName,
       titularEmail: event.titularEmail,
+      titularPhone: event.titularPhone,
       minGuests: event.minGuests,
       beneficiaries: beneficiaryDetails,
       totals: {
@@ -317,6 +487,21 @@ export async function addIpcEntry(
         triggeredById: adminUserId,
       },
       include: { triggeredBy: { select: { fullName: true } } },
+    });
+
+    await audit(tx, tenantId, {
+      entityType: 'IpcIndexValue',
+      entityId: row.id,
+      action: 'CREATE',
+      summary: `IPC cargado a mano para ${period.toISOString().slice(0, 7)}: +${input.sourceLatestValue}%`,
+      changes: {
+        periodo: period.toISOString(),
+        variacionPct: input.sourceLatestValue,
+        variacionAnteriorPct: input.sourcePreviousValue,
+        indiceAnterior: baseIndex,
+        indiceResultante: indexValue,
+        origen: 'MANUAL',
+      },
     });
 
     return {
@@ -416,6 +601,22 @@ export async function recordPayment(
     const advanceDepositWarning =
       totalValue > 0 && (paidBefore + Number(row.amount)) / totalValue > cap;
 
+    const who = beneficiary.label ? ` de ${beneficiary.label}` : '';
+    await audit(tx, tenantId, {
+      entityType: 'Payment',
+      entityId: row.id,
+      eventId: beneficiary.eventId,
+      action: 'CREATE',
+      summary: `Pago de ${money(row.amount)}${who}`,
+      changes: {
+        monto: Number(row.amount),
+        fecha: row.paymentDate.toISOString(),
+        nota: row.note,
+        tarjetas: input.allocations,
+        avisoTopeSena: advanceDepositWarning,
+      },
+    });
+
     return {
       payment: serializePayment({
         ...row,
@@ -428,10 +629,31 @@ export async function recordPayment(
 
 export async function deletePayment(tenantId: string, paymentId: string): Promise<void> {
   return withTenant(tenantId, async (tx) => {
-    const payment = await tx.payment.findUnique({ where: { id: paymentId } });
+    const payment = await tx.payment.findUnique({
+      where: { id: paymentId },
+      include: {
+        allocations: true,
+        beneficiary: { select: { label: true, eventId: true } },
+      },
+    });
     if (!payment || payment.tenantId !== tenantId) return;
     await tx.paymentCardAllocation.deleteMany({ where: { paymentId } });
     await tx.payment.delete({ where: { id: paymentId } });
+    // Antes de la Fase 4 borrar un pago no dejaba ningún rastro.
+    const who = payment.beneficiary.label ? ` de ${payment.beneficiary.label}` : '';
+    await audit(tx, tenantId, {
+      entityType: 'Payment',
+      entityId: paymentId,
+      eventId: payment.beneficiary.eventId,
+      action: 'DELETE',
+      summary: `Baja del pago de ${money(payment.amount)}${who}`,
+      changes: {
+        monto: Number(payment.amount),
+        fecha: payment.paymentDate.toISOString(),
+        nota: payment.note,
+        tarjetas: payment.allocations.map((a) => ({ cardType: a.cardType, quantity: a.quantity })),
+      },
+    });
   });
 }
 

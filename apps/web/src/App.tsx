@@ -7,19 +7,6 @@ import RegisterPage from './routes/RegisterPage';
 import HelpPage from './routes/HelpPage';
 import PortalEventsPage from './routes/portal/PortalEventsPage';
 import EventDetailPage from './routes/portal/EventDetailPage';
-import AdminDashboardPage from './routes/admin/AdminDashboardPage';
-import CreateEventPage from './routes/admin/CreateEventPage';
-import AdminEventDetailPage from './routes/admin/AdminEventDetailPage';
-import IpcStatusPage from './routes/admin/IpcStatusPage';
-import CostConfigPage from './routes/admin/costing/CostConfigPage';
-import EmployeesPage from './routes/admin/staff/EmployeesPage';
-import PayrollPage from './routes/admin/staff/PayrollPage';
-import LeadsPage from './routes/admin/crm/LeadsPage';
-import AvailabilityCalendarPage from './routes/admin/calendar/AvailabilityCalendarPage';
-import RemindersPage from './routes/admin/reminders/RemindersPage';
-import BeneficiaryReportPage from './routes/admin/payments/BeneficiaryReportPage';
-import ClientsPage from './routes/admin/clients/ClientsPage';
-import ClientDetailPage from './routes/admin/clients/ClientDetailPage';
 import ChangePasswordPage from './routes/ChangePasswordPage';
 import CheckInEventsPage from './routes/checkin/CheckInEventsPage';
 import { RequireAuth } from './routes/RequireAuth';
@@ -27,6 +14,28 @@ import { RequireAuth } from './routes/RequireAuth';
 // Carga diferida de las pantallas que usan librerías de QR (qrcode,
 // qr-scanner): el invitado que abre el micrositio no descarga el panel, y el
 // bundle principal no carga con el escáner.
+// Panel admin con carga diferida: un visitante de la landing o un cliente del
+// portal no descarga sus pantallas (además mantiene el bundle principal bajo
+// los 500 kB del aviso de Vite).
+const AdminDashboardPage = lazy(() => import('./routes/admin/AdminDashboardPage'));
+const CreateEventPage = lazy(() => import('./routes/admin/CreateEventPage'));
+const AdminEventDetailPage = lazy(() => import('./routes/admin/AdminEventDetailPage'));
+const IpcStatusPage = lazy(() => import('./routes/admin/IpcStatusPage'));
+const CostConfigPage = lazy(() => import('./routes/admin/costing/CostConfigPage'));
+const EmployeesPage = lazy(() => import('./routes/admin/staff/EmployeesPage'));
+const PayrollPage = lazy(() => import('./routes/admin/staff/PayrollPage'));
+const LeadsPage = lazy(() => import('./routes/admin/crm/LeadsPage'));
+const AvailabilityCalendarPage = lazy(
+  () => import('./routes/admin/calendar/AvailabilityCalendarPage'),
+);
+const RemindersPage = lazy(() => import('./routes/admin/reminders/RemindersPage'));
+const BeneficiaryReportPage = lazy(() => import('./routes/admin/payments/BeneficiaryReportPage'));
+const ClientsPage = lazy(() => import('./routes/admin/clients/ClientsPage'));
+const ClientDetailPage = lazy(() => import('./routes/admin/clients/ClientDetailPage'));
+const AuditLogPage = lazy(() => import('./routes/admin/audit/AuditLogPage'));
+const ProvidersPage = lazy(() => import('./routes/admin/providers/ProvidersPage'));
+const ReportsPage = lazy(() => import('./routes/admin/reports/ReportsPage'));
+
 const InvitePage = lazy(() => import('./routes/guests/InvitePage'));
 const GuestPassPage = lazy(() => import('./routes/guests/GuestPassPage'));
 const CheckInScanPage = lazy(() => import('./routes/checkin/CheckInScanPage'));
@@ -71,7 +80,11 @@ export default function App() {
       <Route element={<RequireAdmin />}>
         <Route
           path="/admin/beneficiarios/:beneficiaryId/reporte"
-          element={<BeneficiaryReportPage />}
+          element={
+            <Lazy>
+              <BeneficiaryReportPage />
+            </Lazy>
+          }
         />
       </Route>
 
@@ -110,6 +123,9 @@ export default function App() {
           <Route path="/admin/recordatorios" element={<RemindersPage />} />
           <Route path="/admin/clientes" element={<ClientsPage />} />
           <Route path="/admin/clientes/:userId" element={<ClientDetailPage />} />
+          <Route path="/admin/reportes" element={<ReportsPage />} />
+          <Route path="/admin/proveedores" element={<ProvidersPage />} />
+          <Route path="/admin/auditoria" element={<AuditLogPage />} />
         </Route>
       </Route>
     </Routes>
