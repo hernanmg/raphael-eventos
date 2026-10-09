@@ -43,8 +43,10 @@ Presentar la propuesta y ajustar prioridades, definir contenido de la landing, a
 ## Estado
 Propuesta entregada al usuario en .docx el 19/08/2026. **Las 4 fases originales están construidas, cerradas y verificadas con Claude Code** (detalle de cada una en `03-reunion-cami-fede.md` y `04-arquitectura-y-costos.md`). `npm run test` corre completo en verde (50/50 — shared, API y web), incluyendo un bug real que encontró esa corrida: la limpieza de datos de test no filtraba por tenant y dependía por accidente de una FK para no borrar eventos reales — quedó resuelto con un helper (`src/test/dbCleanup.ts`) que descubre las tablas a limpiar desde el catálogo de FKs de Postgres, filtrado por marcas de test (emails @example.com, ids test-…), en vez de una lista mantenida a mano.
 
-Pendientes generales a esta fecha (08/10/2026), ninguno bloqueante para que Fede y Cami empiecen a usarla como piloto:
-- Backfill histórico de IPC (la comparativa interanual muestra "sin IPC" para meses anteriores al arranque del sistema, por falta de datos históricos — la API de datos.gob.ar tiene esos valores, falta un fetch retroactivo único).
+**Desde el 09/10/2026 está en marcha el plan de deploy de la primera versión** (piloto con Fede y Cami) — checklist completo en `checklist-deploy.md`, con los datos reales del tenant ya confirmados (Instagram, WhatsApp de contacto, email, link del mapa) y las decisiones de qué sembrar en la base de producción ya tomadas (cuentas de Fede/Cami por seed, sin eventos ni empleados de prueba migrados, Supabase Storage desde el día cero).
+
+Pendientes generales a esta fecha (09/10/2026), ninguno bloqueante para que Fede y Cami empiecen a usarla como piloto:
+- Alta ante Meta de la WhatsApp Business Platform (WABA) para que los recordatorios automáticos funcionen — distinto del número de WhatsApp de contacto, que ya está cargado. Ver detalle en `checklist-deploy.md`.
 - Reglas de negocio del costeo Pro (renegociación de insumos >10%, tope de seña 30%) siguen sin definirse en ningún artefacto, solo mencionadas verbalmente por Fede.
 - Validar tarifas de WhatsApp Business API directamente con Meta (hoy la referencia es de un agregador, no la fuente oficial).
 - Confirmar con Fede y Cami los precios finales de Básica/Pro y los fees de alta.

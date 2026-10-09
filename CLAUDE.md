@@ -1401,3 +1401,48 @@ Datos de prueba de la verificación borrados (evento de prueba, proveedores,
 sponsors y sus archivos, `audit_logs`); el directorio arranca vacío para que
 Fede cargue su lista real.
 
+## Preparación del deploy (piloto) — ver `DEPLOY.md`
+
+Guía paso a paso y lista de variables en `DEPLOY.md` (raíz). Lo construido
+para producción (2026-10-09), ensayado de punta a punta sobre una base vacía
+nueva (migraciones → bootstrap → backfill → API en modo producción):
+
+- `npm run tenant:bootstrap -w apps/api -- --config prisma/bootstrap/raphael-eventos.json --admin "Nombre <email>"`
+  (`src/scripts/bootstrapTenant.ts`): alta del tenant con su perfil público
+  real, rubros de costeo **con montos en 0** (los montos del seed de dev
+  eran inventados — el Excel real los tiene en 0) y cuentas ADMIN con
+  contraseña temporal generada en el momento + cambio forzado. No crea datos
+  de prueba. Usa el rol dueño pero setea `app.tenant_id` (funciona aunque el
+  dueño no tenga BYPASSRLS, como en Supabase). El seed de dev (`db:seed`) NO
+  se corre en producción.
+- `Tenant.contactEmail` (migración `20261009120000`) — se muestra en el
+  footer y en el micrositio.
+- **Storage**: `lib/storage.ts` tiene `SupabaseStorage` (REST v1, service
+  role key, bucket privado; la API sirve los archivos) y `LocalFsStorage`
+  (solo dev). Claves siempre generadas en ASCII (Supabase rechaza no-ASCII;
+  el nombre original del contrato vive en la base). Subir contrato: primero
+  el archivo nuevo, el viejo se borra recién después del commit. Probado
+  contra un Supabase Storage simulado; **falta la prueba contra el Supabase
+  real** (paso 8 de DEPLOY.md).
+- `env.ts`: con `NODE_ENV=production` la API no arranca sin Supabase, con
+  `SESSION_SECRET` < 32, `TRUST_PROXY` 0 o `WEB_ORIGIN` no https.
+  `WEB_ORIGIN` acepta varios orígenes separados por coma. `DATABASE_URL`
+  (dueño) es opcional en runtime: el servicio web no lo necesita.
+- Crons con `timezone: 'America/Argentina/Cordoba'` (en un host UTC corrían
+  a las 05:00/06:00 de Córdoba).
+- `apps/web/vercel.json`: build desde la raíz del monorepo y rewrite de todas
+  las rutas a `index.html` (sin eso, abrir directo `/i/…` o `/q/…` daba 404).
+- Migración `20261009130000_supabase_hardening`: quita todo permiso a
+  `anon`/`authenticated` (Data API de Supabase) — sin eso la tabla `session`
+  (sin RLS) sería legible con la clave pública. No-op fuera de Supabase.
+- Verificado: cookie `HttpOnly; Secure; SameSite=Lax` en producción (con
+  `TRUST_PROXY`), CORS solo para los orígenes configurados, cron de IPC
+  resistente a caída/timeout/500/JSON inválido de datos.gob.ar (no escribe,
+  no tira, corta a los 8s).
+
+**Bloqueante de negocio:** dominio propio con subdominios (web + `api.`) —
+sin eso la cookie `SameSite=Lax` no viaja entre `*.vercel.app` y
+`*.up.railway.app` y el login no funciona; `SameSite=None` no es opción
+(Safari bloquea cookies de terceros). **No construido:** email transaccional
+(verificación / "olvidé mi contraseña") — no existe nada, ni Resend.
+

@@ -30,6 +30,7 @@ import {
 } from './modules/providers/providers.routes';
 import { startReminderCron } from './jobs/reminderCron';
 import { startIpcCron } from './jobs/ipcCron';
+import { storageDriver } from './lib/storage';
 
 const PgSession = connectPgSimple(session);
 
@@ -104,5 +105,8 @@ if (require.main === module) {
   startIpcCron();
   app.listen(env.PORT, () => {
     console.log(`API escuchando en http://localhost:${env.PORT}`);
+    console.log(
+      `Entorno: ${env.NODE_ENV} · storage: ${storageDriver} · CORS: ${env.WEB_ORIGIN.join(', ')}`,
+    );
   });
 }

@@ -41,6 +41,7 @@ const TEST_IPC_FROM = '2099-01-01';
 
 let ownerClient: PrismaClient | null = null;
 function owner(): PrismaClient {
+  if (!env.DATABASE_URL) throw new Error('La limpieza de tests necesita DATABASE_URL (rol dueño)');
   ownerClient ??= new PrismaClient({ datasourceUrl: env.DATABASE_URL });
   return ownerClient;
 }

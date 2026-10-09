@@ -9,9 +9,15 @@ import { runIpcAutoFetchForAllTenants } from '../lib/ipc';
  * corre dentro de `if (require.main === module)` en index.ts.
  */
 export function startIpcCron(): void {
-  cron.schedule('0 8 * * *', () => {
-    runIpcAutoFetchForAllTenants().catch((err) => {
-      console.error('Error corriendo el fetch diario de IPC:', err);
-    });
-  });
+  // Hora de Argentina, no la del servidor (los PaaS corren en UTC: sin
+  // esto, 8:00 UTC serían las 05:00 en Córdoba).
+  cron.schedule(
+    '0 8 * * *',
+    () => {
+      runIpcAutoFetchForAllTenants().catch((err) => {
+        console.error('Error corriendo el fetch diario de IPC:', err);
+      });
+    },
+    { timezone: 'America/Argentina/Cordoba' },
+  );
 }

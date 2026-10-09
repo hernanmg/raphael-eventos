@@ -140,6 +140,8 @@ model Tenant {
   instagramUrl   String?
   address        String?
   mapsUrl        String?
+  /// Email de contacto público del salón (solo se muestra como link).
+  contactEmail   String?
   /// Días antes del evento en que se cierra la confirmación autogestionada
   /// por link. Las excepciones las carga el titular/admin.
   rsvpCloseDaysBefore Int @default(2)

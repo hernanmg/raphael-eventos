@@ -97,13 +97,14 @@ async function main() {
   // Plan PRO: Fede (dueño real) es el caso de uso del módulo de costeo — sin
   // esto, las pantallas nuevas de costeo quedan gateadas y no se pueden
   // probar contra el seed.
-  // Perfil público (Fase 3): los mismos datos que la landing tenía
-  // hardcodeados. Sin dirección exacta ni link de mapa todavía — la landing
-  // solo dice "Córdoba, Argentina"; completar cuando el salón la pase.
+  // Perfil público (Fase 3) — antes hardcodeado en la landing.
+  // Mismos datos reales que prisma/bootstrap/raphael-eventos.json (producción).
   const publicProfile = {
     whatsappNumber: '5493513180810',
     instagramUrl: 'https://www.instagram.com/raphael.eventos/',
-    address: 'Córdoba, Argentina',
+    contactEmail: 'eventosraphael@gmail.com',
+    address: 'Av. Rafael Núñez 5241, Córdoba, Argentina',
+    mapsUrl: 'https://maps.app.goo.gl/BqH1r9eXLdfFLSgg8',
   };
   const tenant = await prisma.tenant.upsert({
     where: { slug },

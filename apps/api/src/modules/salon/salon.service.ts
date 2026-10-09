@@ -9,7 +9,14 @@ import { prisma } from '../../db/prisma';
 export async function getSalonProfile(tenantId: string): Promise<SalonProfile | null> {
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
-    select: { name: true, whatsappNumber: true, instagramUrl: true, address: true, mapsUrl: true },
+    select: {
+      name: true,
+      whatsappNumber: true,
+      instagramUrl: true,
+      address: true,
+      mapsUrl: true,
+      contactEmail: true,
+    },
   });
   return tenant;
 }

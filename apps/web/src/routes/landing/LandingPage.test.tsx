@@ -18,6 +18,7 @@ function salonFetch(input: RequestInfo | URL) {
             instagramUrl: 'https://www.instagram.com/raphael.eventos/',
             address: 'Córdoba, Argentina',
             mapsUrl: null,
+            contactEmail: null,
           },
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },

@@ -8,4 +8,5 @@ export interface SalonProfile {
   instagramUrl: string | null;
   address: string | null;
   mapsUrl: string | null;
+  contactEmail: string | null;
 }

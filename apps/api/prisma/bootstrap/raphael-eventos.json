@@ -1,0 +1,54 @@
+{
+  "slug": "raphael-eventos",
+  "name": "Raphael Eventos",
+  "plan": "PRO",
+  "publicProfile": {
+    "whatsappNumber": "5493513180810",
+    "instagramUrl": "https://www.instagram.com/raphael.eventos/",
+    "contactEmail": "eventosraphael@gmail.com",
+    "address": "Av. Rafael Núñez 5241, Córdoba, Argentina",
+    "mapsUrl": "https://maps.app.goo.gl/BqH1r9eXLdfFLSgg8"
+  },
+  "costing": {
+    "supplyCategories": [
+      "Verdulería",
+      "Pollo",
+      "Carnicería",
+      "Pescadería",
+      "Macro",
+      "Panadería",
+      "Fiambre",
+      "Golosinas",
+      "Alcohol",
+      "Descartables/Limpieza",
+      "Repostería",
+      "Sushi",
+      "Lavandería"
+    ],
+    "serviceCostCategories": [
+      "Mozos",
+      "Barra",
+      "Bacha",
+      "DJ",
+      "Fotógrafo",
+      "Seguridad",
+      "Flecha",
+      "Baño"
+    ],
+    "fixedCostCategories": [
+      { "name": "Luz" },
+      { "name": "Gas" },
+      { "name": "Alquiler", "guestScaled": true },
+      { "name": "Piletero" },
+      { "name": "Jardinero" },
+      { "name": "Limpieza" },
+      { "name": "Horas semanales" },
+      { "name": "Comisiones" },
+      { "name": "Lavandería" },
+      { "name": "Canva" },
+      { "name": "Meta" },
+      { "name": "Contador" },
+      { "name": "Seguro" }
+    ]
+  }
+}

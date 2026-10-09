@@ -13,7 +13,8 @@
     "db:down": "docker compose -f ../../docker-compose.yml down",
     "db:reset": "docker compose -f ../../docker-compose.yml down -v && docker compose -f ../../docker-compose.yml up -d && npx prisma migrate dev",
     "db:seed": "prisma db seed",
-    "ipc:backfill": "tsx src/scripts/backfillIpc.ts"
+    "ipc:backfill": "tsx src/scripts/backfillIpc.ts",
+    "tenant:bootstrap": "tsx src/scripts/bootstrapTenant.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

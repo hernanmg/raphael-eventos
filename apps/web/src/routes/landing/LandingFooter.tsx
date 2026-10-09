@@ -113,7 +113,32 @@ export function LandingFooter() {
                   </a>
                 )}
               </li>
-              {salon?.address && <li className="text-[13.5px] text-white/75">{salon.address}</li>}
+              {salon?.contactEmail && (
+                <li>
+                  <a
+                    href={`mailto:${salon.contactEmail}`}
+                    className="text-[13.5px] text-white/75 transition hover:text-white"
+                  >
+                    {salon.contactEmail}
+                  </a>
+                </li>
+              )}
+              {salon?.address && (
+                <li>
+                  {salon.mapsUrl ? (
+                    <a
+                      href={salon.mapsUrl}
+                      target="_blank"
+                      rel="noopener"
+                      className="text-[13.5px] text-white/75 transition hover:text-white"
+                    >
+                      {salon.address}
+                    </a>
+                  ) : (
+                    <span className="text-[13.5px] text-white/75">{salon.address}</span>
+                  )}
+                </li>
+              )}
             </ul>
           </div>
         </div>

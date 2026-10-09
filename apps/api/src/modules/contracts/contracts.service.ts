@@ -1,4 +1,5 @@
 import type { EventContractSummary } from '@raphael-eventos/shared';
+import { randomBytes } from 'node:crypto';
 import { withTenant } from '../../db/withTenant';
 import { contractStorage } from '../../lib/storage';
 import { audit } from '../../lib/audit';
@@ -6,8 +7,13 @@ import { audit } from '../../lib/audit';
 export class ContractNotFoundError extends Error {}
 export class EventNotAccessibleError extends Error {}
 
-function storageKey(tenantId: string, eventId: string, fileName: string): string {
-  return `${tenantId}/${eventId}/${fileName}`;
+/**
+ * Clave generada (ASCII seguro): Supabase Storage rechaza claves con
+ * caracteres no ASCII, y el nombre original ("Contrato Núñez.pdf") vive en
+ * EventContract.fileName para mostrarlo/descargarlo.
+ */
+function storageKey(tenantId: string, eventId: string): string {
+  return `${tenantId}/${eventId}/${randomBytes(12).toString('hex')}.pdf`;
 }
 
 export async function getContractMeta(
@@ -28,31 +34,43 @@ export async function uploadContract(
   fileName: string,
   buffer: Buffer,
 ): Promise<EventContractSummary> {
-  return withTenant(tenantId, async (tx) => {
-    const existing = await tx.eventContract.findUnique({ where: { eventId } });
-    if (existing) {
-      await contractStorage.delete(existing.storageKey);
-    }
+  // Primero el archivo nuevo; el viejo se borra recién cuando la base ya
+  // apunta al nuevo. Antes se borraba el viejo de entrada: si la subida
+  // fallaba, el evento se quedaba sin contrato.
+  const key = storageKey(tenantId, eventId);
+  await contractStorage.save(key, buffer, 'application/pdf');
 
-    const key = storageKey(tenantId, eventId, fileName);
-    await contractStorage.save(key, buffer);
-
-    const contract = await tx.eventContract.upsert({
-      where: { eventId },
-      update: { fileName, storageKey: key, uploadedById, uploadedAt: new Date() },
-      create: { tenantId, eventId, fileName, storageKey: key, uploadedById },
+  let result: { summary: EventContractSummary; oldKey: string | null };
+  try {
+    result = await withTenant(tenantId, async (tx) => {
+      const existing = await tx.eventContract.findUnique({ where: { eventId } });
+      const contract = await tx.eventContract.upsert({
+        where: { eventId },
+        update: { fileName, storageKey: key, uploadedById, uploadedAt: new Date() },
+        create: { tenantId, eventId, fileName, storageKey: key, uploadedById },
+      });
+      await audit(tx, tenantId, {
+        entityType: 'EventContract',
+        entityId: contract.id,
+        eventId,
+        action: existing ? 'UPDATE' : 'CREATE',
+        summary: existing
+          ? `Contrato reemplazado: "${existing.fileName}" → "${fileName}"`
+          : `Contrato subido: "${fileName}"`,
+      });
+      return {
+        summary: { fileName: contract.fileName, uploadedAt: contract.uploadedAt.toISOString() },
+        oldKey: existing?.storageKey ?? null,
+      };
     });
-    await audit(tx, tenantId, {
-      entityType: 'EventContract',
-      entityId: contract.id,
-      eventId,
-      action: existing ? 'UPDATE' : 'CREATE',
-      summary: existing
-        ? `Contrato reemplazado: "${existing.fileName}" → "${fileName}"`
-        : `Contrato subido: "${fileName}"`,
-    });
-    return { fileName: contract.fileName, uploadedAt: contract.uploadedAt.toISOString() };
-  });
+  } catch (err) {
+    await contractStorage.delete(key).catch(() => undefined);
+    throw err;
+  }
+  if (result.oldKey && result.oldKey !== key) {
+    await contractStorage.delete(result.oldKey).catch(() => undefined);
+  }
+  return result.summary;
 }
 
 export async function deleteContract(tenantId: string, eventId: string): Promise<void> {

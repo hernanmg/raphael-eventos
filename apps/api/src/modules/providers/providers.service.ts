@@ -230,7 +230,7 @@ async function storeLogo(tenantId: string, logo: Buffer) {
   const mime = detectLogoMime(logo);
   if (!mime) throw new InvalidLogoError('El logo tiene que ser una imagen PNG, JPG o WEBP');
   const key = `${tenantId}/${randomBytes(12).toString('hex')}.${EXT[mime]}`;
-  await sponsorLogoStorage.save(key, logo);
+  await sponsorLogoStorage.save(key, logo, mime);
   return { key, mime };
 }
 
