@@ -43,7 +43,7 @@ const envSchema = z
           .filter(Boolean),
       ),
 
-    // Cantidad de proxies delante del server (Railway/Render ponen 1). Sin esto,
+    // Cantidad de proxies delante del server (Render pone 1; con el rewrite de Vercel delante son 2 — ver DEPLOY.md). Sin esto,
     // detrás de un proxy req.ip es la IP del proxy — todos los usuarios
     // compartirían un único contador de rate limit — y req.secure es false, así
     // que express-session no setea la cookie `secure` en producción. 0 en local.

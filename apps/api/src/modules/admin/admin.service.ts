@@ -15,6 +15,7 @@ import type {
 import type { Prisma } from '@prisma/client';
 import { withTenant } from '../../db/withTenant';
 import { audit, diffFields, money, snapshot } from '../../lib/audit';
+import { generateTemporaryPassword, hashPassword } from '../../lib/password';
 import {
   computeAggregateFinancials,
   computeBeneficiaryFinancials,
@@ -720,6 +721,38 @@ export async function listClients(tenantId: string): Promise<ClientListItem[]> {
       phone: user.phone,
       eventCount: user._count.eventAccounts,
     }));
+  });
+}
+
+/**
+ * Contraseña temporal para un CLIENTE que no puede entrar (decisión del
+ * piloto: no hay email transaccional — sin "olvidé mi contraseña" — así que
+ * la resetea el salón, mismo patrón que el acceso de puerta). Se devuelve UNA
+ * vez, no se guarda en claro, y obliga a cambiarla al entrar. Solo clientes:
+ * los admins se resetean con `tenant:bootstrap --reset-password` y los
+ * empleados de puerta desde Personal. Queda en la auditoría (sin la clave).
+ */
+export async function resetClientPassword(
+  tenantId: string,
+  userId: string,
+): Promise<{ email: string; temporaryPassword: string }> {
+  return withTenant(tenantId, async (tx) => {
+    const user = await tx.user.findUnique({ where: { id: userId } });
+    if (!user || user.tenantId !== tenantId || user.role !== 'CLIENTE') {
+      throw new ClientNotFoundError();
+    }
+    const temporaryPassword = generateTemporaryPassword();
+    await tx.user.update({
+      where: { id: userId },
+      data: { passwordHash: await hashPassword(temporaryPassword), mustChangePassword: true },
+    });
+    await audit(tx, tenantId, {
+      entityType: 'User',
+      entityId: userId,
+      action: 'UPDATE',
+      summary: `Contraseña temporal generada para el cliente ${user.fullName} (${user.email})`,
+    });
+    return { email: user.email, temporaryPassword };
   });
 }
 

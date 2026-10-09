@@ -10,6 +10,13 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
+      workbox: {
+        // En producción la API se sirve en el MISMO origen (rewrite /api/* de
+        // vercel.json → Render). Sin esto, el service worker respondería
+        // index.html a las navegaciones a /api/... (descargas de contratos,
+        // exportaciones Excel/CSV) en vez de dejarlas llegar a la API.
+        navigateFallbackDenylist: [/^\/api\//],
+      },
       manifest: {
         name: 'Raphael Eventos',
         short_name: 'Raphael Eventos',

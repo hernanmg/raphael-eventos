@@ -254,6 +254,14 @@ export const helpFeatures: HelpFeature[] = [
     ],
   },
   {
+    id: 'admin-reset-cliente',
+    title: 'Contraseña temporal para un cliente',
+    purpose:
+      'Solo para admin/vendedor. Si un cliente no puede entrar, desde su ficha en Clientes le generás una contraseña temporal (se muestra una sola vez, la copiás o se la mandás por email) y al entrar elige una propia.',
+    path: '/admin/clientes',
+    keywords: ['contraseña', 'olvidé', 'reset', 'cliente', 'acceso'],
+  },
+  {
     id: 'admin-auditoria',
     title: 'Auditoría',
     purpose:

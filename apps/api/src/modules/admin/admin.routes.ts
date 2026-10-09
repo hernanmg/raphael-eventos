@@ -26,6 +26,7 @@ import {
   listClients,
   listIpcHistory,
   recordPayment,
+  resetClientPassword,
   updateEvent,
 } from './admin.service';
 import { getIpcStaleness } from '../../lib/ipc';
@@ -187,6 +188,18 @@ adminRouter.get('/clients', async (req, res, next) => {
     const clients = await listClients(req.tenantId);
     res.json({ clients });
   } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/clients/:userId/reset-password', async (req, res, next) => {
+  try {
+    res.status(201).json(await resetClientPassword(req.tenantId, req.params.userId));
+  } catch (err) {
+    if (err instanceof ClientNotFoundError) {
+      res.status(404).json({ error: { message: 'Cliente no encontrado' } });
+      return;
+    }
     next(err);
   }
 });

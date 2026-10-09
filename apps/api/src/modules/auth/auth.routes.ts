@@ -56,6 +56,23 @@ const loginIpLimiter = rateLimit({
   message: tooManyAttempts,
 });
 
+/**
+ * Por email solo, sin IP: los dos de arriba dependen de req.ip, que detrás de
+ * una cadena de proxies (Vercel rewrite + Render, TRUST_PROXY=2) se puede
+ * falsificar pegándole directo a Render con un X-Forwarded-For inventado.
+ * Este no: protege la cuenta aunque el atacante rote "IPs". Más holgado (30)
+ * para que un usuario real no se trabe por errores propios.
+ */
+const loginEmailLimiter = rateLimit({
+  windowMs: LOGIN_WINDOW_MS,
+  limit: 30,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => `email:${emailFromBody(req.body)}`,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: tooManyAttempts,
+});
+
 /** Cambio de contraseña: verifica la actual, así que también es superficie de fuerza bruta. */
 const changePasswordLimiter = rateLimit({
   windowMs: LOGIN_WINDOW_MS,
@@ -91,27 +108,33 @@ authRouter.post('/register', async (req, res, next) => {
   }
 });
 
-authRouter.post('/login', loginIpLimiter, loginAccountLimiter, async (req, res, next) => {
-  try {
-    const input = parseBody(LoginSchema, req.body, res);
-    if (!input) return;
+authRouter.post(
+  '/login',
+  loginIpLimiter,
+  loginAccountLimiter,
+  loginEmailLimiter,
+  async (req, res, next) => {
+    try {
+      const input = parseBody(LoginSchema, req.body, res);
+      if (!input) return;
 
-    const user = await verifyLogin({ tenantId: req.tenantId, ...input });
+      const user = await verifyLogin({ tenantId: req.tenantId, ...input });
 
-    await regenerateSession(req);
-    req.session.userId = user.id;
-    req.session.tenantId = req.tenantId;
-    await saveSession(req);
+      await regenerateSession(req);
+      req.session.userId = user.id;
+      req.session.tenantId = req.tenantId;
+      await saveSession(req);
 
-    res.json({ user: toPublicUser(user) });
-  } catch (err) {
-    if (err instanceof InvalidCredentialsError) {
-      res.status(401).json({ error: { message: 'Email o contraseña incorrectos' } });
-      return;
+      res.json({ user: toPublicUser(user) });
+    } catch (err) {
+      if (err instanceof InvalidCredentialsError) {
+        res.status(401).json({ error: { message: 'Email o contraseña incorrectos' } });
+        return;
+      }
+      next(err);
     }
-    next(err);
-  }
-});
+  },
+);
 
 authRouter.post('/change-password', requireAuth, changePasswordLimiter, async (req, res, next) => {
   try {

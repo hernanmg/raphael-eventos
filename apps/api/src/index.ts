@@ -31,6 +31,7 @@ import {
 import { startReminderCron } from './jobs/reminderCron';
 import { startIpcCron } from './jobs/ipcCron';
 import { storageDriver } from './lib/storage';
+import { runIpcAutoFetchForAllTenants } from './lib/ipc';
 
 const PgSession = connectPgSimple(session);
 
@@ -68,6 +69,14 @@ export function createApp() {
   });
 
   const apiRouter = Router();
+  // Diagnóstico de deploy: la IP que ve la API para quien hace la request.
+  // Detrás de Vercel (rewrite) + Render tiene que ser la IP real del
+  // visitante; si devuelve una IP de Vercel/Render, TRUST_PROXY está mal y el
+  // rate limit de login trataría a muchos usuarios como uno solo. No expone
+  // nada que el visitante no sepa (es su propia IP).
+  apiRouter.get('/health', (req, res) => {
+    res.json({ status: 'ok', ip: req.ip, secure: req.secure });
+  });
   apiRouter.use(tenantContext);
   apiRouter.use('/auth', authRouter);
   apiRouter.use('/portal', portalRouter);
@@ -103,6 +112,13 @@ if (require.main === module) {
   // los tests, que no necesitan (ni quieren) un cron corriendo en paralelo.
   startReminderCron();
   startIpcCron();
+  // Puesta al día al arrancar: en un plan que duerme el servicio sin tráfico
+  // (Render free) el cron de las 08:00 no corre si a esa hora estaba
+  // dormido. Idempotente (solo escribe si hay un período nuevo) y nunca
+  // bloquea el arranque — si datos.gob.ar falla, no pasa nada.
+  runIpcAutoFetchForAllTenants().catch((err) => {
+    console.error('Puesta al día de IPC al arrancar falló:', err);
+  });
   app.listen(env.PORT, () => {
     console.log(`API escuchando en http://localhost:${env.PORT}`);
     console.log(

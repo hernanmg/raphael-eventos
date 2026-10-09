@@ -25,7 +25,8 @@ export type AuditEntityType =
   | 'EmployeeCommissionAdvance'
   | 'EventContract'
   | 'Provider'
-  | 'Sponsor';
+  | 'Sponsor'
+  | 'User';
 
 export interface AuditEntry {
   entityType: AuditEntityType;

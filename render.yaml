@@ -1,0 +1,43 @@
+# Blueprint de Render para apps/api (piloto, plan free). Ver DEPLOY.md.
+# Los secretos NO van acá: las variables con `sync: false` se cargan a mano en
+# el dashboard de Render al crear el servicio.
+services:
+  - type: web
+    name: raphael-eventos-api
+    runtime: node
+    plan: free
+    # La región más cercana a Supabase sa-east-1 (São Paulo) disponible en Render.
+    region: virginia
+    # Raíz del repo (no apps/api): el build necesita los workspaces de npm y
+    # compilar packages/shared antes que la API.
+    buildCommand: >-
+      npm ci --include=dev &&
+      npx prisma generate --schema apps/api/prisma/schema.prisma &&
+      npm run build:shared &&
+      npm run build -w apps/api
+    startCommand: npm run start -w apps/api
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: '22'
+      - key: TENANT_SLUG
+        value: raphael-eventos
+      # Vercel (rewrite /api/*) + proxy de Render = 2 saltos. Verificar con
+      # GET https://<web>/api/v1/health (ver DEPLOY.md).
+      - key: TRUST_PROXY
+        value: '2'
+      - key: SUPABASE_STORAGE_BUCKET
+        value: raphael-eventos-files
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: APP_DATABASE_URL
+        sync: false
+      - key: WEB_ORIGIN
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false

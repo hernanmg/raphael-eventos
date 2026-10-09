@@ -617,7 +617,7 @@ filtrados por tenant; su DDL está versionado a mano en la migración inicial
 otorgarle permisos a `app_user` sin darle `CREATE` en el schema).
 
 **Deploy (todavía no configurado):** `apps/web` en Vercel. `apps/api`, al ser un
-servidor persistente y no funciones serverless, en Railway o Render.
+servidor persistente y no funciones serverless, en Render (ver DEPLOY.md).
 
 ## Modelo de datos (resumen — ver `apps/api/prisma/schema.prisma` para el detalle)
 
@@ -1116,15 +1116,12 @@ en persona o por email, con **cambio obligatorio al primer ingreso**.
   + un freno por IP más holgado (50 fallos, contra probar muchas cuentas).
   Change-password tiene su propio limitador por usuario. Store en memoria:
   alcanza con una instancia; con más de una, pasar a un store compartido.
-- **`TRUST_PROXY`** (env, default 0; 1 en Railway/Render): sin esto, detrás
+- **`TRUST_PROXY`** (env, default 0; en producción 2 — Vercel rewrite + Render, ver DEPLOY.md): sin esto, detrás
   del proxy del deploy `req.ip` sería la IP del proxy (todos los usuarios
   compartiendo un solo contador de rate limit) y `req.secure` daría false,
   así que la cookie de sesión `secure` no se setearía en producción.
-  **Pendiente de deploy, no resuelto acá:** con web en Vercel y API en
-  Railway en dominios distintos, `sameSite: 'lax'` no manda la cookie en los
-  `fetch` cross-site — usar subdominios del mismo dominio (ej.
-  `app.` + `api.raphaeleventos.com`) o revisar `sameSite` al configurar el
-  deploy.
+  Cookies cross-site: resuelto con el rewrite `/api/*` de Vercel (mismo
+  origen) — ver "Stack final del piloto" al final.
 
 Verificado con curl + Playwright: alta de acceso de Adri y Pao, rechazo sin
 email (400) y con email de un cliente existente (409), login con la
@@ -1440,9 +1437,43 @@ nueva (migraciones → bootstrap → backfill → API en modo producción):
   resistente a caída/timeout/500/JSON inválido de datos.gob.ar (no escribe,
   no tira, corta a los 8s).
 
-**Bloqueante de negocio:** dominio propio con subdominios (web + `api.`) —
-sin eso la cookie `SameSite=Lax` no viaja entre `*.vercel.app` y
-`*.up.railway.app` y el login no funciona; `SameSite=None` no es opción
-(Safari bloquea cookies de terceros). **No construido:** email transaccional
-(verificación / "olvidé mi contraseña") — no existe nada, ni Resend.
+**Stack final del piloto (2026-10-09): Vercel (web) + Render free (API) +
+Supabase (DB + Storage)** — `render.yaml` (blueprint) y `DEPLOY.md`.
+- **Sin dominio propio:** `apps/web/vercel.json` reenvía `/api/*` a
+  `raphael-eventos-api.onrender.com` → web y API en el mismo origen, la cookie
+  `SameSite=Lax` queda en el dominio de Vercel. La web usa
+  `VITE_API_URL=same-origin` (rutas relativas, `lib/api.ts`). El service
+  worker de la PWA excluye `/api/` de su fallback de navegación (si no,
+  descargas/exportaciones devolvían `index.html`).
+- `TRUST_PROXY=2` (Vercel + Render). `GET /api/v1/health` devuelve la IP que
+  ve la API para verificarlo en producción. Como confiar en 2 saltos permite
+  falsificar la IP pegándole directo a Render, el login suma un tercer
+  limitador **por email solo** (30 fallos / 15 min), independiente de la IP.
+- Supabase: la conexión directa (`db.<ref>.supabase.co`) es **solo IPv6** y
+  Render no sale por IPv6 → usar el **Session pooler** (IPv4, 5432, usuario
+  `<rol>.<ref>`), nunca el Transaction pooler. `APP_DATABASE_URL` = `app_user`
+  (nunca el usuario `postgres`, que se saltea RLS). Claves nuevas: la
+  `sb_secret_…` va en `SUPABASE_SERVICE_ROLE_KEY`.
+- Render free duerme el servicio: los crons no corren dormido → la API se pone
+  al día con el IPC al arrancar (`index.ts`, idempotente).
+- Decisión del piloto sin email transaccional: **admin genera una contraseña
+  temporal para un cliente** desde su ficha (`POST
+  /admin/clients/:userId/reset-password`, solo rol CLIENTE, auditado como
+  `User`, cambio forzado al entrar).
+
+Dominio propio: pospuesto (resuelto con el rewrite de Vercel). **No
+construido:** email transaccional (verificación / "olvidé mi contraseña") —
+pospuesto, cubierto por el reset de contraseña desde el panel.
+
+**Base de producción (Supabase) preparada el 2026-10-09** — pasos 2–5 de
+`DEPLOY.md` hechos: 12 migraciones aplicadas por el Session pooler
+(`aws-1-sa-east-1.pooler.supabase.com:5432` — el 6543 es el Transaction
+pooler, no sirve), `app_user` rotado (NOBYPASSRLS, NOSUPERUSER; la contraseña
+de desarrollo ya no entra), `anon`/`authenticated` sin permisos, tenant
+`raphael-eventos` (PRO) con perfil real, admins Fede y Cami con contraseña
+temporal, 20 meses de IPC. Storage probado contra el Supabase real (bucket
+`raphael-eventos-files`, privado — el acceso público devuelve 400). API
+verificada en modo producción contra la base/storage reales (solo lectura).
+Ninguna credencial está en el repo. Pendiente: Render, Vercel, prueba de
+punta a punta (pasos 6–8).
 

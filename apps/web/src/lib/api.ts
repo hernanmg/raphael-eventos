@@ -79,7 +79,19 @@ import type {
   TenantCostConfigSummary,
 } from '@raphael-eventos/shared';
 
-export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+// VITE_API_URL:
+//  - sin definir → API local de desarrollo;
+//  - "same-origin" → rutas relativas (producción: vercel.json reenvía /api/* a
+//    la API en Render, así web y API comparten origen y la cookie de sesión
+//    SameSite=Lax viaja sin dominio propio);
+//  - una URL → esa API (ej. con dominio propio, api.<dominio>).
+const RAW_API_URL = import.meta.env.VITE_API_URL as string | undefined;
+export const API_URL =
+  RAW_API_URL === undefined || RAW_API_URL === ''
+    ? 'http://localhost:3001'
+    : RAW_API_URL === 'same-origin'
+      ? ''
+      : RAW_API_URL.replace(/\/+$/, '');
 
 export class ApiError extends Error {
   status: number;
@@ -179,6 +191,11 @@ export const api = {
     ),
 
   // -- Fase 4: directorio de proveedores + sponsors ------------------------
+
+  resetClientPassword: (userId: string) =>
+    request<DoorAccessResult>(`/api/v1/admin/clients/${userId}/reset-password`, {
+      method: 'POST',
+    }),
 
   listAdminProviders: () => request<{ providers: AdminProvider[] }>('/api/v1/admin/providers'),
 

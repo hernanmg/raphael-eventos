@@ -10,7 +10,7 @@ import { env } from '../env';
  *    service role key — el bucket es PRIVADO, los archivos los sirve siempre
  *    la API (que chequea permisos), nunca una URL pública del bucket.
  *  - LocalFsStorage (solo desarrollo): disco local, gitignored. En un PaaS
- *    (Railway/Render) el disco se pierde en cada redeploy — por eso env.ts
+ *    (Render) el disco se pierde en cada redeploy — por eso env.ts
  *    exige las variables de Supabase cuando NODE_ENV=production.
  *
  * Claves: las genera siempre el código (ASCII seguro). Supabase rechaza

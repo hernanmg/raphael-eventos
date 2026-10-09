@@ -44,6 +44,7 @@ export const AUDIT_AREAS: Record<string, { label: string; entityTypes: string[] 
     ],
   },
   directorio: { label: 'Proveedores y sponsors', entityTypes: ['Provider', 'Sponsor'] },
+  cuentas: { label: 'Cuentas de clientes', entityTypes: ['User'] },
 };
 
 export interface AuditLogPage {

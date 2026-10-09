@@ -3,7 +3,7 @@ import { runReminderSweepForAllTenants } from '../modules/reminders/reminders.se
 
 /**
  * Corre una vez por día (09:00). Viable como cron in-process porque
- * apps/api es un servidor persistente (Railway/Render), no funciones
+ * apps/api es un servidor persistente (Render), no funciones
  * serverless — ver CLAUDE.md sección de deploy. Si el día de mañana se
  * necesita correr en más de una instancia, esto se movería a un cron
  * administrado por la plataforma que pegue a un endpoint interno en vez de
