@@ -86,12 +86,20 @@ export default function AdminDashboardPage() {
             Recordatorios
           </Link>
           {session?.tenantPlan === 'PRO' && (
-            <Link
-              to="/admin/costeo/config"
-              className="rounded-full border border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
-            >
-              Costeo
-            </Link>
+            <>
+              <Link
+                to="/admin/gastos"
+                className="rounded-full border border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
+              >
+                Gastos
+              </Link>
+              <Link
+                to="/admin/costeo/config"
+                className="rounded-full border border-ink px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-ink hover:text-white"
+              >
+                Costeo
+              </Link>
+            </>
           )}
           <Link
             to="/admin/reportes"

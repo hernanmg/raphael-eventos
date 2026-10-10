@@ -5,22 +5,30 @@ import { EventTypeSchema } from './enums';
 import type { EventType } from './enums';
 import { formBoolean, httpUrl, optionalText } from './zodHelpers';
 
-export const ProviderInputSchema = z.object({
-  name: z.string().trim().min(2, 'Ingresá el nombre').max(120),
-  category: z.string().trim().min(2, 'Ingresá el rubro').max(60),
-  description: optionalText(z.string().trim().max(500)),
-  contactName: optionalText(z.string().trim().max(120)),
-  phone: optionalText(z.string().trim().min(6, 'Teléfono inválido').max(30)),
-  email: optionalText(z.string().trim().toLowerCase().email('Email inválido')),
-  instagramUrl: optionalText(httpUrl),
-  websiteUrl: optionalText(httpUrl),
-  eventTypes: z.array(EventTypeSchema).min(1, 'Elegí al menos un tipo de evento'),
-  /** Solo referencia interna (no mueve dinero). */
-  referralPct: optionalText(z.coerce.number().min(0).max(100)),
-  referralNote: optionalText(z.string().trim().max(300)),
-  active: z.boolean().default(true),
-  sortOrder: z.coerce.number().int().min(0).max(9999).default(0),
-});
+export const ProviderInputSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Ingresá el nombre').max(120),
+    /** Rubro de costeo (dropdown) — feedback 2026-10: antes era texto libre. */
+    costCategoryId: z.string().trim().min(1, 'Elegí el rubro'),
+    /** false = proveedor de compras (Macro, Kristal...): no sale en la landing. */
+    showInDirectory: z.boolean().default(true),
+    description: optionalText(z.string().trim().max(500)),
+    contactName: optionalText(z.string().trim().max(120)),
+    phone: optionalText(z.string().trim().min(6, 'Teléfono inválido').max(30)),
+    email: optionalText(z.string().trim().toLowerCase().email('Email inválido')),
+    instagramUrl: optionalText(httpUrl),
+    websiteUrl: optionalText(httpUrl),
+    eventTypes: z.array(EventTypeSchema).default([]),
+    /** Solo referencia interna (no mueve dinero). */
+    referralPct: optionalText(z.coerce.number().min(0).max(100)),
+    referralNote: optionalText(z.string().trim().max(300)),
+    active: z.boolean().default(true),
+    sortOrder: z.coerce.number().int().min(0).max(9999).default(0),
+  })
+  .refine((v) => !v.showInDirectory || v.eventTypes.length > 0, {
+    message: 'Elegí al menos un tipo de evento',
+    path: ['eventTypes'],
+  });
 export type ProviderInput = z.infer<typeof ProviderInputSchema>;
 
 /** Lo que ve el público (landing/portal): sin comisión ni notas internas. */
@@ -39,6 +47,8 @@ export interface PublicProvider {
 
 /** Vista del panel: incluye la referencia de comisión (solo para Cami/Fede). */
 export interface AdminProvider extends PublicProvider {
+  costCategoryId: string | null;
+  showInDirectory: boolean;
   referralPct: number | null;
   referralNote: string | null;
   active: boolean;

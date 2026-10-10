@@ -2,9 +2,13 @@ import type { Prisma } from '@prisma/client';
 import type {
   CommissionAdvanceInput,
   EmployeeInput,
+  EmployeeSummary,
   EmployeeTimeEntryInput,
   EventStaffAssignmentInput,
-  PayrollPeriodInput,
+  PayrollConfirmInput,
+  PayrollEntrySummary,
+  PayrollLineInput,
+  PayrollPreview,
 } from '@raphael-eventos/shared';
 import { withTenant } from '../../db/withTenant';
 import { computeAggregateFinancials } from '../../lib/financials';
@@ -27,17 +31,11 @@ function monthRange(period: Date): { start: Date; end: Date } {
   };
 }
 
-function serializeEmployee(row: {
-  id: string;
-  fullName: string;
-  email: string | null;
-  userId: string | null;
-  contractType: string;
-  fixedMonthlyAmount: Prisma.Decimal;
-  variableType: string;
-  variableValue: Prisma.Decimal;
-  active: boolean;
-}) {
+const EMPLOYEE_INCLUDE = { costCategory: { select: { name: true } } } as const;
+
+type EmployeeRow = Prisma.EmployeeGetPayload<{ include: typeof EMPLOYEE_INCLUDE }>;
+
+function serializeEmployee(row: EmployeeRow): EmployeeSummary {
   return {
     id: row.id,
     fullName: row.fullName,
@@ -47,34 +45,56 @@ function serializeEmployee(row: {
     fixedMonthlyAmount: Number(row.fixedMonthlyAmount),
     variableType: row.variableType,
     variableValue: Number(row.variableValue),
+    saleCommissionType: row.saleCommissionType,
+    saleCommissionValue: Number(row.saleCommissionValue),
+    hourlyRate: Number(row.hourlyRate),
+    costCategoryId: row.costCategoryId,
+    costCategoryName: row.costCategory?.name ?? null,
     active: row.active,
   };
 }
 
+const EMPLOYEE_AUDIT_FIELDS: (keyof EmployeeRow)[] = [
+  'fullName',
+  'email',
+  'contractType',
+  'fixedMonthlyAmount',
+  'variableType',
+  'variableValue',
+  'saleCommissionType',
+  'saleCommissionValue',
+  'hourlyRate',
+  'costCategoryId',
+  'active',
+];
+
+function employeeData(input: EmployeeInput) {
+  return { ...input, costCategoryId: input.costCategoryId ?? null };
+}
+
 export async function listEmployees(tenantId: string) {
   return withTenant(tenantId, async (tx) => {
-    const rows = await tx.employee.findMany({ where: { tenantId }, orderBy: { fullName: 'asc' } });
+    const rows = await tx.employee.findMany({
+      where: { tenantId },
+      include: EMPLOYEE_INCLUDE,
+      orderBy: { fullName: 'asc' },
+    });
     return rows.map(serializeEmployee);
   });
 }
 
 export async function createEmployee(tenantId: string, input: EmployeeInput) {
   return withTenant(tenantId, async (tx) => {
-    const row = await tx.employee.create({ data: { tenantId, ...input } });
+    const row = await tx.employee.create({
+      data: { tenantId, ...employeeData(input) },
+      include: EMPLOYEE_INCLUDE,
+    });
     await audit(tx, tenantId, {
       entityType: 'Employee',
       entityId: row.id,
       action: 'CREATE',
       summary: `Alta del empleado ${row.fullName}`,
-      changes: snapshot(row, [
-        'fullName',
-        'email',
-        'contractType',
-        'fixedMonthlyAmount',
-        'variableType',
-        'variableValue',
-        'active',
-      ]),
+      changes: snapshot(row, EMPLOYEE_AUDIT_FIELDS),
     });
     return serializeEmployee(row);
   });
@@ -95,16 +115,9 @@ export async function updateEmployee(tenantId: string, id: string, input: Employ
       });
     }
 
-    const row = await tx.employee.update({ where: { id }, data: input });
-    const changes = diffFields(current, input, [
-      'fullName',
-      'email',
-      'contractType',
-      'fixedMonthlyAmount',
-      'variableType',
-      'variableValue',
-      'active',
-    ]);
+    const data = employeeData(input);
+    const row = await tx.employee.update({ where: { id }, data, include: EMPLOYEE_INCLUDE });
+    const changes = diffFields(current as EmployeeRow, data, EMPLOYEE_AUDIT_FIELDS);
     if (changes) {
       const activeChanged = current.active !== input.active;
       await audit(tx, tenantId, {
@@ -214,11 +227,86 @@ export async function listEventStaffAssignments(tenantId: string, eventId: strin
   });
 }
 
+async function eventTotalValue(tx: Prisma.TransactionClient, tenantId: string, eventId: string) {
+  const [beneficiaries, ipcRows] = await Promise.all([
+    tx.eventBeneficiary.findMany({
+      where: { tenantId, eventId },
+      include: { cards: true, payments: true },
+    }),
+    tx.ipcIndexValue.findMany({ where: { tenantId }, orderBy: { period: 'asc' } }),
+  ]);
+  return computeAggregateFinancials(beneficiaries, ipcRows).totalValue;
+}
+
+/** Monto de un componente variable (monto fijo, o % del valor del evento). */
+async function variableAmount(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  eventId: string,
+  type: string,
+  value: Prisma.Decimal,
+): Promise<number> {
+  if (type === 'COMISION_PCT') {
+    const total = await eventTotalValue(tx, tenantId, eventId);
+    return Number((total * (Number(value) / 100)).toFixed(2));
+  }
+  return Number(value);
+}
+
 /**
- * Asigna un empleado a un evento (Básica). Si el empleado tiene componente
- * variable, genera sola la línea correspondiente en EventServiceCost
- * (autoGenerated: true) en vez de que el admin la cargue dos veces —
- * decisión ya cerrada en CLAUDE.md "Fase 2 — costeo y personal".
+ * Comisión de venta (feedback 2026-10: la comisión es por evento VENDIDO).
+ * Se llama en el alta/edición de un evento: borra la comisión
+ * auto-generada anterior (salvo que el admin la haya editado a mano) y, si
+ * el evento tiene vendedor con comisión y no está cancelado, la genera como
+ * gasto del evento. Su liquidación cae en el mes de `soldAt`.
+ */
+export async function syncSaleCommission(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  eventId: string,
+) {
+  const event = await tx.event.findUnique({
+    where: { id: eventId },
+    include: { soldByEmployee: true },
+  });
+  if (!event) return;
+  await tx.expense.deleteMany({
+    where: { tenantId, eventId, autoSource: 'SALE_COMMISSION', manuallyEdited: false },
+  });
+  const seller = event.soldByEmployee;
+  if (!seller || seller.saleCommissionType === 'NINGUNO' || event.status === 'CANCELADO') return;
+  const kept = await tx.expense.count({
+    where: { tenantId, eventId, autoSource: 'SALE_COMMISSION', employeeId: seller.id },
+  });
+  if (kept > 0) return; // ya hay una editada a mano para este vendedor
+  const amount = await variableAmount(
+    tx,
+    tenantId,
+    eventId,
+    seller.saleCommissionType,
+    seller.saleCommissionValue,
+  );
+  await tx.expense.create({
+    data: {
+      tenantId,
+      eventId,
+      date: event.soldAt ?? event.createdAt,
+      // Sin rubro: se agrupa como "Comisiones de venta" en el costeo, aparte
+      // del rubro del empleado (que es para su trabajo: horas, por evento).
+      categoryId: null,
+      employeeId: seller.id,
+      amount,
+      detail: `Comisión de venta — ${seller.fullName}`,
+      autoSource: 'SALE_COMMISSION',
+    },
+  });
+}
+
+/**
+ * Asigna un empleado a un evento (Básica). Si el empleado cobra por evento
+ * trabajado, genera solo el gasto correspondiente en el evento (rubro del
+ * empleado) en vez de que el admin lo cargue dos veces — decisión ya cerrada
+ * en CLAUDE.md "Fase 2 — costeo y personal".
  */
 export async function assignStaff(
   tenantId: string,
@@ -235,28 +323,24 @@ export async function assignStaff(
     });
 
     if (employee.variableType !== 'NINGUNO') {
-      let amount = Number(employee.variableValue);
-      if (employee.variableType === 'COMISION_PCT') {
-        const beneficiaries = await tx.eventBeneficiary.findMany({
-          where: { tenantId, eventId },
-          include: { cards: true, payments: true },
-        });
-        const ipcRows = await tx.ipcIndexValue.findMany({
-          where: { tenantId },
-          orderBy: { period: 'asc' },
-        });
-        const { totalValue } = computeAggregateFinancials(beneficiaries, ipcRows);
-        amount = Number((totalValue * (Number(employee.variableValue) / 100)).toFixed(2));
-      }
-
-      await tx.eventServiceCost.create({
+      const event = await tx.event.findUniqueOrThrow({ where: { id: eventId } });
+      const amount = await variableAmount(
+        tx,
+        tenantId,
+        eventId,
+        employee.variableType,
+        employee.variableValue,
+      );
+      await tx.expense.create({
         data: {
           tenantId,
           eventId,
+          date: event.eventDate ?? new Date(),
+          categoryId: employee.costCategoryId,
           employeeId: employee.id,
-          autoGenerated: true,
           amount,
-          note: employee.fullName,
+          detail: `${employee.fullName} — evento trabajado`,
+          autoSource: 'STAFF_EVENT',
         },
       });
     }
@@ -278,9 +362,9 @@ export async function assignStaff(
 }
 
 /**
- * Desasigna un empleado del evento. Borra también la línea de
- * EventServiceCost que se auto-generó al asignarlo — salvo que el admin la
- * haya editado a mano (manuallyEdited), en cuyo caso se deja tal cual.
+ * Desasigna un empleado del evento. Borra también el gasto que se
+ * auto-generó al asignarlo — salvo que el admin lo haya editado a mano
+ * (manuallyEdited), en cuyo caso se deja tal cual.
  */
 export async function unassignStaff(tenantId: string, assignmentId: string) {
   return withTenant(tenantId, async (tx) => {
@@ -290,12 +374,12 @@ export async function unassignStaff(tenantId: string, assignmentId: string) {
     });
     if (!assignment || assignment.tenantId !== tenantId) throw new NotFoundError();
 
-    await tx.eventServiceCost.deleteMany({
+    await tx.expense.deleteMany({
       where: {
         tenantId,
         eventId: assignment.eventId,
         employeeId: assignment.employeeId,
-        autoGenerated: true,
+        autoSource: 'STAFF_EVENT',
         manuallyEdited: false,
       },
     });
@@ -438,103 +522,25 @@ export async function listCommissionAdvances(tenantId: string, employeeId: strin
   });
 }
 
-/**
- * Liquida un período (mes): fixedComponent = fijo completo del empleado;
- * variableComponent = suma de las líneas de EventServiceCost generadas por
- * sus asignaciones a eventos de ese mes; advancesDeducted = comisiones
- * adelantadas no reconciliadas todavía con fecha en ese mes — quedan
- * marcadas como reconciliadas contra la liquidación resultante.
- */
-export async function computePayrollPeriod(
-  tenantId: string,
-  employeeId: string,
-  input: PayrollPeriodInput,
-) {
-  return withTenant(tenantId, async (tx) => {
-    const employee = await tx.employee.findUnique({ where: { id: employeeId } });
-    if (!employee || employee.tenantId !== tenantId) throw new NotFoundError();
+// -- Liquidación (borrador editable → confirmación) --------------------------
 
-    const period = firstOfMonth(input.period);
-    const { start, end } = monthRange(period);
-
-    const assignments = await tx.eventStaffAssignment.findMany({
-      where: { tenantId, employeeId, event: { eventDate: { gte: start, lt: end } } },
-      select: { eventId: true },
-    });
-    const eventIds = assignments.map((a) => a.eventId);
-
-    const serviceCosts = eventIds.length
-      ? await tx.eventServiceCost.findMany({
-          where: { tenantId, employeeId, eventId: { in: eventIds } },
-        })
-      : [];
-    const variableComponent = Number(
-      serviceCosts.reduce((sum, c) => sum + Number(c.amount), 0).toFixed(2),
-    );
-
-    const pendingAdvances = await tx.employeeCommissionAdvance.findMany({
-      where: {
-        tenantId,
-        employeeId,
-        reconciledInEntryId: null,
-        date: { gte: start, lt: end },
-      },
-    });
-    const advancesDeducted = Number(
-      pendingAdvances.reduce((sum, a) => sum + Number(a.amount), 0).toFixed(2),
-    );
-
-    const entry = await tx.payrollEntry.upsert({
-      where: { employeeId_period: { employeeId, period } },
-      update: {
-        fixedComponent: employee.fixedMonthlyAmount,
-        variableComponent,
-        advancesDeducted,
-      },
-      create: {
-        tenantId,
-        employeeId,
-        period,
-        fixedComponent: employee.fixedMonthlyAmount,
-        variableComponent,
-        advancesDeducted,
-      },
-    });
-
-    if (pendingAdvances.length) {
-      await tx.employeeCommissionAdvance.updateMany({
-        where: { id: { in: pendingAdvances.map((a) => a.id) } },
-        data: { reconciledInEntryId: entry.id },
-      });
-    }
-
-    const total = Number(entry.fixedComponent) + variableComponent - advancesDeducted;
-    await audit(tx, tenantId, {
-      entityType: 'PayrollEntry',
-      entityId: entry.id,
-      action: 'UPDATE',
-      summary: `Liquidación de ${employee.fullName} — ${period.toISOString().slice(0, 7)}: ${money(total)}`,
-      changes: {
-        periodo: period.toISOString(),
-        fijo: Number(entry.fixedComponent),
-        variable: variableComponent,
-        adelantosDescontados: advancesDeducted,
-        adelantosReconciliados: pendingAdvances.length,
-      },
-    });
-
-    return serializePayrollEntry(entry);
-  });
+function periodOf(dateLike: string): Date {
+  // "YYYY-MM" o cualquier fecha del mes.
+  if (/^\d{4}-\d{2}$/.test(dateLike)) {
+    const [y, m] = dateLike.split('-').map(Number);
+    return new Date(Date.UTC(y!, m! - 1, 1));
+  }
+  return firstOfMonth(dateLike);
 }
 
-function serializePayrollEntry(row: {
-  id: string;
-  period: Date;
-  fixedComponent: Prisma.Decimal;
-  variableComponent: Prisma.Decimal;
-  advancesDeducted: Prisma.Decimal;
-  note: string | null;
-}) {
+const PAYROLL_INCLUDE = {
+  lines: { orderBy: { sortOrder: 'asc' } },
+  expense: { select: { amount: true } },
+} as const;
+
+type PayrollRow = Prisma.PayrollEntryGetPayload<{ include: typeof PAYROLL_INCLUDE }>;
+
+function serializePayrollEntry(row: PayrollRow): PayrollEntrySummary {
   const fixedComponent = Number(row.fixedComponent);
   const variableComponent = Number(row.variableComponent);
   const advancesDeducted = Number(row.advancesDeducted);
@@ -546,13 +552,344 @@ function serializePayrollEntry(row: {
     advancesDeducted,
     totalPaid: Number((fixedComponent + variableComponent - advancesDeducted).toFixed(2)),
     note: row.note,
+    lines: row.lines.map((line) => ({
+      id: line.id,
+      kind: line.kind,
+      description: line.description,
+      quantity: Number(line.quantity),
+      unitAmount: Number(line.unitAmount),
+      amount: Number(line.amount),
+    })),
+    expenseAmount: row.expense ? Number(row.expense.amount) : null,
   };
+}
+
+/** Datos del mes de un empleado que alimentan el borrador de liquidación. */
+async function payrollContext(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  employeeId: string,
+  period: Date,
+) {
+  const { start, end } = monthRange(period);
+  const existing = await tx.payrollEntry.findUnique({
+    where: { employeeId_period: { employeeId, period } },
+    include: PAYROLL_INCLUDE,
+  });
+  const [timeEntries, assignments, sold, advances] = await Promise.all([
+    tx.employeeTimeEntry.findMany({
+      where: { tenantId, employeeId, date: { gte: start, lt: end } },
+    }),
+    tx.eventStaffAssignment.findMany({
+      where: {
+        tenantId,
+        employeeId,
+        event: { eventDate: { gte: start, lt: end }, status: { not: 'CANCELADO' } },
+      },
+      include: {
+        event: {
+          select: {
+            id: true,
+            name: true,
+            eventDate: true,
+            expenses: {
+              where: { employeeId, autoSource: 'STAFF_EVENT' },
+              select: { amount: true },
+            },
+          },
+        },
+      },
+    }),
+    // Vendidos en el mes: por fecha de venta (o de alta, si no se cargó).
+    tx.event.findMany({
+      where: {
+        tenantId,
+        soldByEmployeeId: employeeId,
+        status: { not: 'CANCELADO' },
+        OR: [
+          { soldAt: { gte: start, lt: end } },
+          { soldAt: null, createdAt: { gte: start, lt: end } },
+        ],
+      },
+      include: {
+        expenses: {
+          where: { employeeId, autoSource: 'SALE_COMMISSION' },
+          select: { amount: true },
+        },
+      },
+      orderBy: { soldAt: 'asc' },
+    }),
+    // Adelantos sin descontar hasta fin de mes (+ los ya descontados en esta
+    // misma liquidación, si se está re-liquidando).
+    tx.employeeCommissionAdvance.findMany({
+      where: {
+        tenantId,
+        employeeId,
+        date: { lt: end },
+        OR: [
+          { reconciledInEntryId: null },
+          ...(existing ? [{ reconciledInEntryId: existing.id }] : []),
+        ],
+      },
+      orderBy: { date: 'asc' },
+    }),
+  ]);
+  const hours = Number(
+    timeEntries.reduce((sum, t) => sum + (t.hours === null ? 0 : Number(t.hours)), 0).toFixed(2),
+  );
+  return { existing, hours, assignments, sold, advances };
+}
+
+const sumAmounts = (rows: { amount: Prisma.Decimal }[]) =>
+  Number(rows.reduce((s, r) => s + Number(r.amount), 0).toFixed(2));
+
+/**
+ * Borrador de liquidación (no guarda nada): una línea por concepto que el
+ * empleado tiene cargado — sueldo fijo, horas × valor hora, monto por evento
+ * trabajado (cantidad = eventos del mes), comisión por evento vendido,
+ * adelantos — con el cálculo de cada una. El admin edita todo antes de
+ * confirmar (feedback 2026-10).
+ */
+export async function previewPayroll(
+  tenantId: string,
+  employeeId: string,
+  periodInput: string,
+): Promise<PayrollPreview> {
+  return withTenant(tenantId, async (tx) => {
+    const employee = await tx.employee.findUnique({ where: { id: employeeId } });
+    if (!employee || employee.tenantId !== tenantId) throw new NotFoundError();
+    const period = periodOf(periodInput);
+    const ctx = await payrollContext(tx, tenantId, employeeId, period);
+
+    const lines: PayrollLineInput[] = [];
+    const fixed = Number(employee.fixedMonthlyAmount);
+    if (fixed > 0) {
+      lines.push({ kind: 'FIJO', description: 'Sueldo fijo', quantity: 1, unitAmount: fixed });
+    }
+    const hourlyRate = Number(employee.hourlyRate);
+    if (hourlyRate > 0 || ctx.hours > 0) {
+      lines.push({
+        kind: 'HORAS',
+        description: 'Horas del mes',
+        quantity: ctx.hours,
+        unitAmount: hourlyRate,
+      });
+    }
+    if (employee.variableType === 'MONTO_POR_EVENTO') {
+      lines.push({
+        kind: 'POR_EVENTO',
+        description: 'Monto por evento trabajado',
+        quantity: ctx.assignments.length,
+        unitAmount: Number(employee.variableValue),
+      });
+    } else if (employee.variableType === 'COMISION_PCT') {
+      for (const a of ctx.assignments) {
+        lines.push({
+          kind: 'POR_EVENTO',
+          description: `${Number(employee.variableValue)}% de ${a.event.name}`,
+          quantity: 1,
+          unitAmount: sumAmounts(a.event.expenses),
+        });
+      }
+    }
+    if (employee.saleCommissionType === 'MONTO_POR_EVENTO') {
+      lines.push({
+        kind: 'COMISION',
+        description: 'Comisión por evento vendido',
+        quantity: ctx.sold.length,
+        unitAmount: Number(employee.saleCommissionValue),
+      });
+    } else if (employee.saleCommissionType === 'COMISION_PCT') {
+      for (const e of ctx.sold) {
+        const amount =
+          e.expenses.length > 0
+            ? sumAmounts(e.expenses)
+            : await variableAmount(
+                tx,
+                tenantId,
+                e.id,
+                'COMISION_PCT',
+                employee.saleCommissionValue,
+              );
+        lines.push({
+          kind: 'COMISION',
+          description: `Comisión ${Number(employee.saleCommissionValue)}% — ${e.name}`,
+          quantity: 1,
+          unitAmount: amount,
+        });
+      }
+    }
+    const advancesTotal = sumAmounts(ctx.advances);
+    if (advancesTotal > 0) {
+      lines.push({
+        kind: 'ADELANTO',
+        description: `Comisiones adelantadas (${ctx.advances.length})`,
+        quantity: 1,
+        unitAmount: advancesTotal,
+      });
+    }
+
+    return {
+      period: period.toISOString(),
+      lines,
+      existing: ctx.existing ? serializePayrollEntry(ctx.existing) : null,
+      reference: {
+        hours: ctx.hours,
+        hourlyRate,
+        eventsWorked: ctx.assignments.map((a) => ({
+          id: a.event.id,
+          name: a.event.name,
+          date: a.event.eventDate?.toISOString() ?? null,
+          costedAmount: sumAmounts(a.event.expenses),
+        })),
+        eventsSold: ctx.sold.map((e) => ({
+          id: e.id,
+          name: e.name,
+          soldAt: (e.soldAt ?? e.createdAt).toISOString(),
+          costedAmount: sumAmounts(e.expenses),
+        })),
+        advances: ctx.advances.map((a) => ({
+          id: a.id,
+          date: a.date.toISOString(),
+          amount: Number(a.amount),
+          note: a.note,
+        })),
+      },
+    };
+  });
+}
+
+const FIXED_KINDS = new Set(['FIJO', 'HORAS', 'OTRO']);
+const VARIABLE_KINDS = new Set(['POR_EVENTO', 'COMISION']);
+
+/**
+ * Confirma la liquidación del mes con las líneas (editadas) del borrador.
+ * Re-liquidar el mismo mes reemplaza la anterior. Vínculo con costeo: el
+ * fijo + horas (+ otros) del mes pasa a ser un gasto del salón de ese mes
+ * en el rubro del empleado, y se prorratea entre los eventos del mes como
+ * cualquier gasto fijo. Lo por evento / comisiones ya está en el costeo de
+ * cada evento (gastos auto-generados), así que no se vuelve a sumar.
+ */
+export async function confirmPayroll(
+  tenantId: string,
+  employeeId: string,
+  input: PayrollConfirmInput,
+): Promise<PayrollEntrySummary> {
+  return withTenant(tenantId, async (tx) => {
+    const employee = await tx.employee.findUnique({ where: { id: employeeId } });
+    if (!employee || employee.tenantId !== tenantId) throw new NotFoundError();
+    const period = periodOf(input.period);
+    const ctx = await payrollContext(tx, tenantId, employeeId, period);
+
+    const lines = input.lines.map((line, index) => {
+      const amount = Number((line.quantity * line.unitAmount).toFixed(2));
+      return { ...line, amount: line.kind === 'ADELANTO' ? -amount : amount, sortOrder: index };
+    });
+    const sum = (pred: (kind: string) => boolean) =>
+      Number(
+        lines
+          .filter((l) => pred(l.kind))
+          .reduce((s, l) => s + l.amount, 0)
+          .toFixed(2),
+      );
+    const fixedComponent = sum((k) => FIXED_KINDS.has(k));
+    const variableComponent = sum((k) => VARIABLE_KINDS.has(k));
+    const advancesDeducted = -sum((k) => k === 'ADELANTO');
+
+    const entry = await tx.payrollEntry.upsert({
+      where: { employeeId_period: { employeeId, period } },
+      update: { fixedComponent, variableComponent, advancesDeducted, note: input.note ?? null },
+      create: {
+        tenantId,
+        employeeId,
+        period,
+        fixedComponent,
+        variableComponent,
+        advancesDeducted,
+        note: input.note ?? null,
+      },
+    });
+    await tx.payrollLine.deleteMany({ where: { payrollEntryId: entry.id } });
+    await tx.payrollLine.createMany({
+      data: lines.map((l) => ({
+        tenantId,
+        payrollEntryId: entry.id,
+        kind: l.kind,
+        description: l.description,
+        quantity: l.quantity,
+        unitAmount: l.unitAmount,
+        amount: l.amount,
+        sortOrder: l.sortOrder,
+      })),
+    });
+
+    // Adelantos: quedan descontados en esta liquidación solo si tiene una
+    // línea de adelanto; si el admin la sacó, vuelven a quedar pendientes.
+    await tx.employeeCommissionAdvance.updateMany({
+      where: { tenantId, reconciledInEntryId: entry.id },
+      data: { reconciledInEntryId: null },
+    });
+    if (advancesDeducted > 0 && ctx.advances.length > 0) {
+      await tx.employeeCommissionAdvance.updateMany({
+        where: { id: { in: ctx.advances.map((a) => a.id) } },
+        data: { reconciledInEntryId: entry.id },
+      });
+    }
+
+    // Gasto del mes en costeo (fijo + horas + otros).
+    const periodLabel = period.toISOString().slice(0, 7);
+    const existingExpense = await tx.expense.findUnique({ where: { payrollEntryId: entry.id } });
+    if (fixedComponent > 0) {
+      const data = {
+        tenantId,
+        eventId: null,
+        period,
+        date: period,
+        categoryId: employee.costCategoryId,
+        employeeId,
+        amount: fixedComponent,
+        detail: `Liquidación ${employee.fullName} ${periodLabel} (fijo + horas)`,
+        autoSource: 'PAYROLL' as const,
+        payrollEntryId: entry.id,
+      };
+      if (existingExpense) {
+        await tx.expense.update({ where: { id: existingExpense.id }, data });
+      } else {
+        await tx.expense.create({ data });
+      }
+    } else if (existingExpense) {
+      await tx.expense.delete({ where: { id: existingExpense.id } });
+    }
+
+    const total = Number((fixedComponent + variableComponent - advancesDeducted).toFixed(2));
+    await audit(tx, tenantId, {
+      entityType: 'PayrollEntry',
+      entityId: entry.id,
+      action: ctx.existing ? 'UPDATE' : 'CREATE',
+      summary: `Liquidación de ${employee.fullName} — ${periodLabel}: ${money(total)}`,
+      changes: {
+        periodo: periodLabel,
+        lineas: lines.map((l) => `${l.description}: ${l.quantity} × ${l.unitAmount} = ${l.amount}`),
+        fijo: fixedComponent,
+        variable: variableComponent,
+        adelantosDescontados: advancesDeducted,
+        gastoEnCosteo: fixedComponent,
+      },
+    });
+
+    const saved = await tx.payrollEntry.findUniqueOrThrow({
+      where: { id: entry.id },
+      include: PAYROLL_INCLUDE,
+    });
+    return serializePayrollEntry(saved);
+  });
 }
 
 export async function listPayrollEntries(tenantId: string, employeeId: string) {
   return withTenant(tenantId, async (tx) => {
     const rows = await tx.payrollEntry.findMany({
       where: { tenantId, employeeId },
+      include: PAYROLL_INCLUDE,
       orderBy: { period: 'desc' },
     });
     return rows.map(serializePayrollEntry);

@@ -26,6 +26,8 @@ export const AUDIT_AREAS: Record<string, { label: string; entityTypes: string[] 
     label: 'Costeo',
     entityTypes: [
       'TenantCostConfig',
+      'CostCategory',
+      'Expense',
       'SupplyCategory',
       'ServiceCostCategory',
       'FixedCostCategory',

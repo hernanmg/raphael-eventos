@@ -1,44 +1,56 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
+import multer from 'multer';
 import {
-  EventServiceCostInputSchema,
-  EventSupplyLineInputSchema,
-  FixedCostCategoryInputSchema,
-  ServiceCostCategoryInputSchema,
-  SupplyCategoryInputSchema,
+  CostCategoryInputSchema,
+  ExpenseInputSchema,
   TenantCostConfigInputSchema,
 } from '@raphael-eventos/shared';
 import { requireRole } from '../../middleware/requireRole';
 import { requirePlan } from '../../middleware/requirePlan';
 import { parseBody } from '../../lib/validate';
 import {
+  InvalidExpenseError,
   NotFoundError,
+  RECEIPT_MAX_BYTES,
   computeEventCosting,
-  createEventServiceCost,
-  createEventSupplyLine,
-  createFixedCostCategory,
-  createServiceCostCategory,
-  createSupplyCategory,
-  deleteEventServiceCost,
-  deleteEventSupplyLine,
-  deleteFixedCostCategory,
-  deleteServiceCostCategory,
-  deleteSupplyCategory,
+  createCostCategory,
+  createExpense,
+  deleteCostCategory,
+  deleteExpense,
   getCostConfig,
-  listFixedCostCategories,
-  listServiceCostCategories,
-  listSupplyCategories,
+  getExpenseReceipt,
+  listCostCategories,
+  listExpenses,
+  updateCostCategory,
   updateCostConfig,
-  updateEventServiceCost,
-  updateEventSupplyLine,
-  updateFixedCostCategory,
+  updateExpense,
+  type ReceiptUpload,
 } from './costing.service';
 
 export const costingRouter = Router();
 
-// Costeo es exclusivo del Plan Pro (ver CLAUDE.md "Fase 2 — costeo y
-// personal") — mismo acceso ADMIN/VENDEDOR que el resto del panel admin,
-// sin diferenciación entre Cami y Fede.
+// Costeo es exclusivo del Plan Pro — mismo acceso ADMIN/VENDEDOR que el resto
+// del panel admin, sin diferenciación entre Cami y Fede.
 costingRouter.use(requireRole('ADMIN', 'VENDEDOR'), requirePlan('PRO'));
+
+// Margen sobre el tope de 10 MB para que el error lo dé el service con un
+// mensaje propio, no multer con uno genérico.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: RECEIPT_MAX_BYTES * 1.5 },
+});
+
+function handleError(err: unknown, res: Response): boolean {
+  if (err instanceof NotFoundError) {
+    res.status(404).json({ error: { message: 'No encontrado' } });
+    return true;
+  }
+  if (err instanceof InvalidExpenseError) {
+    res.status(400).json({ error: { message: err.message } });
+    return true;
+  }
+  return false;
+}
 
 costingRouter.get('/cost-config', async (req, res, next) => {
   try {
@@ -58,164 +70,149 @@ costingRouter.put('/cost-config', async (req, res, next) => {
   }
 });
 
-costingRouter.get('/supply-categories', async (req, res, next) => {
+// -- Rubros -------------------------------------------------------------------
+
+costingRouter.get('/cost-categories', async (req, res, next) => {
   try {
-    res.json({ categories: await listSupplyCategories(req.tenantId) });
+    res.json({ categories: await listCostCategories(req.tenantId) });
   } catch (err) {
     next(err);
   }
 });
 
-costingRouter.post('/supply-categories', async (req, res, next) => {
+costingRouter.post('/cost-categories', async (req, res, next) => {
   try {
-    const input = parseBody(SupplyCategoryInputSchema, req.body, res);
+    const input = parseBody(CostCategoryInputSchema, req.body, res);
     if (!input) return;
-    res.status(201).json({ category: await createSupplyCategory(req.tenantId, input) });
+    res.status(201).json({ category: await createCostCategory(req.tenantId, input) });
   } catch (err) {
     next(err);
   }
 });
 
-costingRouter.delete('/supply-categories/:id', async (req, res, next) => {
+costingRouter.put('/cost-categories/:id', async (req, res, next) => {
   try {
-    await deleteSupplyCategory(req.tenantId, req.params.id);
+    const input = parseBody(CostCategoryInputSchema, req.body, res);
+    if (!input) return;
+    res.json({ category: await updateCostCategory(req.tenantId, req.params.id!, input) });
+  } catch (err) {
+    if (handleError(err, res)) return;
+    next(err);
+  }
+});
+
+costingRouter.delete('/cost-categories/:id', async (req, res, next) => {
+  try {
+    await deleteCostCategory(req.tenantId, req.params.id!);
     res.status(204).end();
   } catch (err) {
     next(err);
   }
 });
 
-costingRouter.get('/service-cost-categories', async (req, res, next) => {
+// -- Gastos -------------------------------------------------------------------
+
+/** El form manda multipart: `data` (JSON del gasto) + `receipt` (ticket, opcional). */
+function parseExpenseBody(req: Request, res: Response) {
+  let body: unknown;
   try {
-    res.json({ categories: await listServiceCostCategories(req.tenantId) });
+    body = typeof req.body?.data === 'string' ? JSON.parse(req.body.data) : req.body;
+  } catch {
+    res.status(400).json({ error: { message: 'Datos del gasto inválidos' } });
+    return null;
+  }
+  return parseBody(ExpenseInputSchema, body, res);
+}
+
+function receiptFrom(req: Request): ReceiptUpload | null {
+  return req.file ? { buffer: req.file.buffer, originalName: req.file.originalname } : null;
+}
+
+costingRouter.get('/expenses', async (req, res, next) => {
+  try {
+    const q = (key: string) =>
+      typeof req.query[key] === 'string' ? (req.query[key] as string) : undefined;
+    const month = q('month');
+    if (month && !/^\d{4}-\d{2}$/.test(month)) {
+      res.status(400).json({ error: { message: 'Mes inválido' } });
+      return;
+    }
+    res.json({
+      list: await listExpenses(req.tenantId, {
+        eventId: q('eventId'),
+        month,
+        categoryId: q('categoryId'),
+      }),
+    });
   } catch (err) {
     next(err);
   }
 });
 
-costingRouter.post('/service-cost-categories', async (req, res, next) => {
+costingRouter.post('/expenses', upload.single('receipt'), async (req, res, next) => {
   try {
-    const input = parseBody(ServiceCostCategoryInputSchema, req.body, res);
+    const input = parseExpenseBody(req, res);
     if (!input) return;
-    res.status(201).json({ category: await createServiceCostCategory(req.tenantId, input) });
+    const expense = await createExpense(
+      req.tenantId,
+      input,
+      receiptFrom(req),
+      req.currentUser?.id ?? null,
+    );
+    res.status(201).json({ expense });
   } catch (err) {
+    if (handleError(err, res)) return;
     next(err);
   }
 });
 
-costingRouter.delete('/service-cost-categories/:id', async (req, res, next) => {
+costingRouter.put('/expenses/:id', upload.single('receipt'), async (req, res, next) => {
   try {
-    await deleteServiceCostCategory(req.tenantId, req.params.id);
+    const input = parseExpenseBody(req, res);
+    if (!input) return;
+    res.json({
+      expense: await updateExpense(req.tenantId, req.params.id!, input, receiptFrom(req)),
+    });
+  } catch (err) {
+    if (handleError(err, res)) return;
+    next(err);
+  }
+});
+
+costingRouter.delete('/expenses/:id', async (req, res, next) => {
+  try {
+    await deleteExpense(req.tenantId, req.params.id!);
     res.status(204).end();
   } catch (err) {
+    if (handleError(err, res)) return;
     next(err);
   }
 });
 
-costingRouter.get('/fixed-cost-categories', async (req, res, next) => {
+costingRouter.get('/expenses/:id/receipt', async (req, res, next) => {
   try {
-    res.json({ categories: await listFixedCostCategories(req.tenantId) });
+    const { buffer, mime, name } = await getExpenseReceipt(req.tenantId, req.params.id!);
+    res.setHeader('Content-Type', mime);
+    // inline: la foto del ticket se ve en el navegador en vez de descargarse.
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.send(buffer);
   } catch (err) {
+    if (err instanceof NotFoundError) {
+      res.status(404).json({ error: { message: 'Este gasto no tiene ticket' } });
+      return;
+    }
     next(err);
   }
 });
 
-costingRouter.post('/fixed-cost-categories', async (req, res, next) => {
-  try {
-    const input = parseBody(FixedCostCategoryInputSchema, req.body, res);
-    if (!input) return;
-    res.status(201).json({ category: await createFixedCostCategory(req.tenantId, input) });
-  } catch (err) {
-    next(err);
-  }
-});
-
-costingRouter.put('/fixed-cost-categories/:id', async (req, res, next) => {
-  try {
-    const input = parseBody(FixedCostCategoryInputSchema, req.body, res);
-    if (!input) return;
-    res.json({ category: await updateFixedCostCategory(req.tenantId, req.params.id, input) });
-  } catch (err) {
-    next(err);
-  }
-});
-
-costingRouter.delete('/fixed-cost-categories/:id', async (req, res, next) => {
-  try {
-    await deleteFixedCostCategory(req.tenantId, req.params.id);
-    res.status(204).end();
-  } catch (err) {
-    next(err);
-  }
-});
-
-costingRouter.post('/events/:eventId/supply-lines', async (req, res, next) => {
-  try {
-    const input = parseBody(EventSupplyLineInputSchema, req.body, res);
-    if (!input) return;
-    res
-      .status(201)
-      .json({ line: await createEventSupplyLine(req.tenantId, req.params.eventId, input) });
-  } catch (err) {
-    next(err);
-  }
-});
-
-costingRouter.put('/supply-lines/:id', async (req, res, next) => {
-  try {
-    const input = parseBody(EventSupplyLineInputSchema, req.body, res);
-    if (!input) return;
-    res.json({ line: await updateEventSupplyLine(req.tenantId, req.params.id, input) });
-  } catch (err) {
-    next(err);
-  }
-});
-
-costingRouter.delete('/supply-lines/:id', async (req, res, next) => {
-  try {
-    await deleteEventSupplyLine(req.tenantId, req.params.id);
-    res.status(204).end();
-  } catch (err) {
-    next(err);
-  }
-});
-
-costingRouter.post('/events/:eventId/service-costs', async (req, res, next) => {
-  try {
-    const input = parseBody(EventServiceCostInputSchema, req.body, res);
-    if (!input) return;
-    res
-      .status(201)
-      .json({ cost: await createEventServiceCost(req.tenantId, req.params.eventId, input) });
-  } catch (err) {
-    next(err);
-  }
-});
-
-costingRouter.put('/service-costs/:id', async (req, res, next) => {
-  try {
-    const input = parseBody(EventServiceCostInputSchema, req.body, res);
-    if (!input) return;
-    res.json({ cost: await updateEventServiceCost(req.tenantId, req.params.id, input) });
-  } catch (err) {
-    next(err);
-  }
-});
-
-costingRouter.delete('/service-costs/:id', async (req, res, next) => {
-  try {
-    await deleteEventServiceCost(req.tenantId, req.params.id);
-    res.status(204).end();
-  } catch (err) {
-    next(err);
-  }
-});
+// -- Costeo del evento --------------------------------------------------------
 
 costingRouter.get('/events/:eventId/costing', async (req, res, next) => {
   try {
-    const guestCount = req.query.guestCount ? Number(req.query.guestCount) : undefined;
-    const costing = await computeEventCosting(req.tenantId, req.params.eventId, guestCount);
-    res.json({ costing });
+    const raw = Number(req.query.guestCount);
+    const guestCount =
+      req.query.guestCount !== undefined && Number.isFinite(raw) && raw >= 0 ? raw : undefined;
+    res.json({ costing: await computeEventCosting(req.tenantId, req.params.eventId!, guestCount) });
   } catch (err) {
     if (err instanceof NotFoundError) {
       res.status(404).json({ error: { message: 'Evento no encontrado' } });

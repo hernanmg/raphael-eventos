@@ -22,6 +22,7 @@ const CreateEventPage = lazy(() => import('./routes/admin/CreateEventPage'));
 const AdminEventDetailPage = lazy(() => import('./routes/admin/AdminEventDetailPage'));
 const IpcStatusPage = lazy(() => import('./routes/admin/IpcStatusPage'));
 const CostConfigPage = lazy(() => import('./routes/admin/costing/CostConfigPage'));
+const ExpensesPage = lazy(() => import('./routes/admin/costing/ExpensesPage'));
 const EmployeesPage = lazy(() => import('./routes/admin/staff/EmployeesPage'));
 const PayrollPage = lazy(() => import('./routes/admin/staff/PayrollPage'));
 const LeadsPage = lazy(() => import('./routes/admin/crm/LeadsPage'));
@@ -116,6 +117,7 @@ export default function App() {
           <Route path="/admin/eventos/:eventId" element={<AdminEventDetailPage />} />
           <Route path="/admin/ipc" element={<IpcStatusPage />} />
           <Route path="/admin/costeo/config" element={<CostConfigPage />} />
+          <Route path="/admin/gastos" element={<ExpensesPage />} />
           <Route path="/admin/personal" element={<EmployeesPage />} />
           <Route path="/admin/personal/:employeeId/liquidacion" element={<PayrollPage />} />
           <Route path="/admin/consultas" element={<LeadsPage />} />

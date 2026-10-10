@@ -36,3 +36,16 @@ export type LeadStatus = z.infer<typeof LeadStatusSchema>;
 
 export const SupplyUnitSchema = z.enum(['KG', 'LITROS', 'UNIDAD']);
 export type SupplyUnit = z.infer<typeof SupplyUnitSchema>;
+
+export const CostCategoryKindSchema = z.enum(['INSUMO', 'SERVICIO', 'FIJO']);
+export type CostCategoryKind = z.infer<typeof CostCategoryKindSchema>;
+
+export const PayrollLineKindSchema = z.enum([
+  'FIJO',
+  'HORAS',
+  'POR_EVENTO',
+  'COMISION',
+  'ADELANTO',
+  'OTRO',
+]);
+export type PayrollLineKind = z.infer<typeof PayrollLineKindSchema>;

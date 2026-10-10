@@ -7,6 +7,7 @@ import {
   type UpdateEventInput,
 } from '@raphael-eventos/shared';
 import { useUpdateEvent } from '../../../hooks/usePhase4';
+import { useEmployees } from '../../../hooks/useStaff';
 import { errorText } from '../../../lib/guestLinks';
 import { EVENT_STATUS_LABELS } from '../../../lib/format';
 
@@ -17,6 +18,9 @@ import { EVENT_STATUS_LABELS } from '../../../lib/format';
 export function EventEditSection({ event }: { event: AdminEventDetail }) {
   const [open, setOpen] = useState(false);
   const update = useUpdateEvent(event.id);
+  const { data: employeesData } = useEmployees();
+  const sellers =
+    employeesData?.employees.filter((e) => e.active || e.id === event.soldByEmployeeId) ?? [];
   const initial: UpdateEventInput = {
     name: event.name,
     eventDate: event.eventDate ? event.eventDate.slice(0, 10) : undefined,
@@ -25,6 +29,8 @@ export function EventEditSection({ event }: { event: AdminEventDetail }) {
     titularPhone: event.titularPhone ?? undefined,
     minGuests: event.minGuests ?? undefined,
     status: event.status,
+    soldByEmployeeId: event.soldByEmployeeId ?? undefined,
+    soldAt: event.soldAt ? event.soldAt.slice(0, 10) : undefined,
   };
   const {
     register,
@@ -113,6 +119,21 @@ export function EventEditSection({ event }: { event: AdminEventDetail }) {
           {errors.titularPhone && (
             <span className="text-red-600">{errors.titularPhone.message}</span>
           )}
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium text-ink">Vendido por</span>
+          <select className={field} {...register('soldByEmployeeId')}>
+            <option value="">— Nadie / venta directa —</option>
+            {sellers.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.fullName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium text-ink">Fecha de venta (mes de la comisión)</span>
+          <input type="date" className={field} {...register('soldAt')} />
         </label>
         {event.type === 'EGRESO' && (
           <label className="flex flex-col gap-1 text-xs">

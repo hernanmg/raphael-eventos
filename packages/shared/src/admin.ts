@@ -78,6 +78,10 @@ export const CreateEventSchema = z
     minGuests: optionalText(z.coerce.number().int().min(0).max(100_000)),
     cards: z.array(EventCardInputSchema).length(4),
     alumnos: z.array(AlumnoInputSchema).default([]),
+    /** Empleado que vendió el evento (genera su comisión de venta). */
+    soldByEmployeeId: optionalText(z.string().trim().min(1)),
+    /** Fecha de la venta (default: hoy) — define el mes de la comisión. */
+    soldAt: optionalText(z.string().trim().min(1)),
   })
   .refine((data) => data.cards.some((card) => card.quantity > 0), {
     message: 'Cargá una cantidad mayor a 0 en al menos un tipo de tarjeta',
@@ -103,6 +107,8 @@ export const UpdateEventSchema = z.object({
   titularPhone: optionalText(z.string().trim().min(6, 'Teléfono inválido').max(30)),
   minGuests: optionalText(z.coerce.number().int().min(0).max(100_000)),
   status: EventStatusSchema,
+  soldByEmployeeId: optionalText(z.string().trim().min(1)),
+  soldAt: optionalText(z.string().trim().min(1)),
 });
 export type UpdateEventInput = z.infer<typeof UpdateEventSchema>;
 
@@ -191,6 +197,9 @@ export interface AdminEventDetail {
   titularEmail: string | null;
   titularPhone: string | null;
   minGuests: number | null;
+  soldByEmployeeId: string | null;
+  soldByEmployeeName: string | null;
+  soldAt: string | null;
   beneficiaries: AdminBeneficiaryDetail[];
   totals: {
     totalValue: number;

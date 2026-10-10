@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Link, useNavigate } from 'react-router-dom';
 import { CreateEventSchema, type CreateEventInput } from '@raphael-eventos/shared';
 import { useCreateEvent } from '../../hooks/useAdmin';
+import { useEmployees } from '../../hooks/useStaff';
 import { api, ApiError } from '../../lib/api';
 import { FormField } from '../../components/FormField';
 import { CARD_TYPE_LABELS, EVENT_TYPE_LABELS } from '../../lib/format';
@@ -18,6 +19,8 @@ const DEFAULT_VALUES: CreateEventInput = {
   titularName: undefined,
   titularEmail: '',
   minGuests: undefined,
+  soldByEmployeeId: undefined,
+  soldAt: undefined,
   cards: CARD_TYPES.map((cardType) => ({ cardType, quantity: 0, baseValue: 0 })),
   alumnos: [],
 };
@@ -25,6 +28,8 @@ const DEFAULT_VALUES: CreateEventInput = {
 export default function CreateEventPage() {
   const navigate = useNavigate();
   const mutation = useCreateEvent();
+  const { data: employeesData } = useEmployees();
+  const sellers = employeesData?.employees.filter((e) => e.active) ?? [];
 
   const {
     register,
@@ -152,6 +157,28 @@ export default function CreateEventPage() {
             type="email"
             error={errors.titularEmail?.message}
             {...register('titularEmail')}
+          />
+          {/* Vendedor: genera su comisión por evento vendido (feedback 2026-10). */}
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium text-ink">Vendido por (opcional)</span>
+            <select
+              className="rounded-xl border border-line bg-white px-4 py-3 outline-none focus:border-ink"
+              {...register('soldByEmployeeId')}
+            >
+              <option value="">— Nadie / venta directa —</option>
+              {sellers.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.fullName}
+                  {e.saleCommissionType === 'NINGUNO' ? ' (sin comisión cargada)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <FormField
+            label="Fecha de venta (define el mes de la comisión; vacío = hoy)"
+            type="date"
+            error={errors.soldAt?.message}
+            {...register('soldAt')}
           />
         </div>
 

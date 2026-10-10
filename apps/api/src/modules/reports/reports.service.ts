@@ -1,5 +1,5 @@
-import type { EventType } from '@prisma/client';
-import type { MonthReport, YearReport } from '@raphael-eventos/shared';
+import type { CardType, EventType } from '@prisma/client';
+import type { CardCount, MonthReport, YearReport } from '@raphael-eventos/shared';
 import { withTenant } from '../../db/withTenant';
 import { computeAggregateFinancials, serializeCard, type IpcRow } from '../../lib/financials';
 import { MONEY_FMT, type ExportSheet } from '../../lib/exporter';
@@ -36,7 +36,19 @@ function indexAt(ipcRows: IpcRow[], year: number, month: number): number | null 
   return found ? Number(found.indexValue) : null;
 }
 
-export async function getYearReport(tenantId: string, year: number): Promise<YearReport> {
+const CARD_TYPES: CardType[] = ['ADULTO', 'ADOLESCENTE', 'MENOR', 'BRINDIS'];
+
+/**
+ * `eventIds` (opcional): filtro de la card "Eventos" — el reporte entero se
+ * recalcula solo con esos eventos (sus tarjetas, sus pagos). Las consultas
+ * tentativas no pertenecen a ningún evento, así que con filtro quedan en 0.
+ */
+export async function getYearReport(
+  tenantId: string,
+  year: number,
+  eventIds?: string[],
+): Promise<YearReport> {
+  const filter = eventIds && eventIds.length > 0 ? new Set(eventIds) : null;
   return withTenant(tenantId, async (tx) => {
     const from = new Date(Date.UTC(year - 1, 0, 1));
     const to = new Date(Date.UTC(year + 1, 0, 1));
@@ -46,11 +58,16 @@ export async function getYearReport(tenantId: string, year: number): Promise<Yea
       tx.event.findMany({
         where: { tenantId, eventDate: { gte: from, lt: to } },
         select: {
+          id: true,
+          name: true,
           type: true,
           status: true,
           eventDate: true,
-          beneficiaries: { include: { cards: true, payments: true } },
+          beneficiaries: {
+            include: { cards: true, payments: { include: { allocations: true } } },
+          },
         },
+        orderBy: { eventDate: 'asc' },
       }),
       tx.lead.findMany({
         where: {
@@ -62,9 +79,26 @@ export async function getYearReport(tenantId: string, year: number): Promise<Yea
       }),
       tx.payment.findMany({
         where: { tenantId, paymentDate: { gte: from, lt: to } },
-        select: { amount: true, paymentDate: true },
+        select: { amount: true, paymentDate: true, beneficiary: { select: { eventId: true } } },
       }),
     ]);
+
+    const yearStart = Date.UTC(year, 0, 1);
+    const yearEnd = Date.UTC(year + 1, 0, 1);
+    const inYear = (date: Date) => date.getTime() >= yearStart && date.getTime() < yearEnd;
+    const eventOptions = events
+      .filter((e) => e.eventDate && inYear(e.eventDate) && e.status !== 'CANCELADO')
+      .map((e) => ({
+        id: e.id,
+        name: e.name,
+        type: e.type,
+        eventDate: e.eventDate!.toISOString(),
+      }));
+    const selectedEvents = filter ? events.filter((e) => filter.has(e.id)) : events;
+    const selectedPayments = filter
+      ? payments.filter((p) => filter.has(p.beneficiary.eventId))
+      : payments;
+    const selectedLeads = filter ? [] : leads;
 
     // Agregados por mes (clave "año-mes"), para este año y el anterior.
     type Bucket = {
@@ -94,7 +128,11 @@ export async function getYearReport(tenantId: string, year: number): Promise<Yea
       return b;
     };
 
-    for (const event of events) {
+    const cardsByType = Object.fromEntries(
+      CARD_TYPES.map((t) => [t, { quantity: 0, paid: 0 }]),
+    ) as Record<CardType, CardCount>;
+
+    for (const event of selectedEvents) {
       if (!event.eventDate) continue;
       const b = bucket(monthKey(event.eventDate));
       if (event.status === 'CANCELADO') {
@@ -106,12 +144,23 @@ export async function getYearReport(tenantId: string, year: number): Promise<Yea
       const { totalValue, totalPaid } = computeAggregateFinancials(event.beneficiaries, ipcRows);
       b.committed += totalValue;
       b.collected += totalPaid;
+      if (inYear(event.eventDate)) {
+        for (const beneficiary of event.beneficiaries) {
+          for (const card of beneficiary.cards)
+            cardsByType[card.cardType].quantity += card.quantity;
+          for (const payment of beneficiary.payments) {
+            for (const a of payment.allocations) cardsByType[a.cardType].paid += a.quantity;
+          }
+        }
+      }
     }
-    for (const lead of leads) {
+    for (const lead of selectedLeads) {
       if (lead.interestedDate) bucket(monthKey(lead.interestedDate)).tentative += 1;
     }
-    for (const payment of payments) {
+    const cashInEvents = new Set<string>();
+    for (const payment of selectedPayments) {
       bucket(monthKey(payment.paymentDate)).cashIn += Number(payment.amount);
+      if (inYear(payment.paymentDate)) cashInEvents.add(payment.beneficiary.eventId);
     }
 
     const latestIpc = ipcRows.length ? ipcRows[ipcRows.length - 1]!.period : null;
@@ -152,10 +201,22 @@ export async function getYearReport(tenantId: string, year: number): Promise<Yea
     for (const m of months) for (const t of EVENT_TYPES) totalsByType[t] += m.eventsByType[t];
     const adjustedKnown = months.every((m) => m.previousYear.cashInAdjusted !== null);
 
+    const cardsTotal = CARD_TYPES.reduce(
+      (acc, t) => ({
+        quantity: acc.quantity + cardsByType[t].quantity,
+        paid: acc.paid + cardsByType[t].paid,
+      }),
+      { quantity: 0, paid: 0 },
+    );
+
     return {
       year,
       months,
       ipcFactors,
+      cashInEventCount: cashInEvents.size,
+      cards: { total: cardsTotal, byType: cardsByType },
+      eventOptions,
+      filteredEventIds: filter ? [...filter] : null,
       totals: {
         events: sum((m) => m.events),
         eventsByType: totalsByType,

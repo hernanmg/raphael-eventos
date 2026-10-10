@@ -1,11 +1,13 @@
 import type {
   AccountRole,
   CardType,
+  CostCategoryKind,
   EmployeeContractType,
   EmployeeVariableType,
   EventStatus,
   EventType,
   LeadStatus,
+  SupplyUnit,
 } from '@raphael-eventos/shared';
 
 const currencyFormatter = new Intl.NumberFormat('es-AR', {
@@ -103,3 +105,15 @@ const dateTimeFormatter = new Intl.DateTimeFormat('es-AR', {
 export function formatDateTime(iso: string): string {
   return dateTimeFormatter.format(new Date(iso));
 }
+
+export const SUPPLY_UNIT_LABELS: Record<SupplyUnit, string> = {
+  KG: 'kg',
+  LITROS: 'L',
+  UNIDAD: 'un.',
+};
+
+export const COST_KIND_LABELS: Record<CostCategoryKind, string> = {
+  INSUMO: 'Insumos',
+  SERVICIO: 'Servicios',
+  FIJO: 'Gastos fijos del salón',
+};

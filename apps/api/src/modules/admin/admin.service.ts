@@ -16,6 +16,7 @@ import type { Prisma } from '@prisma/client';
 import { withTenant } from '../../db/withTenant';
 import { audit, diffFields, money, snapshot } from '../../lib/audit';
 import { generateTemporaryPassword, hashPassword } from '../../lib/password';
+import { syncSaleCommission } from '../staff/staff.service';
 import {
   computeAggregateFinancials,
   computeBeneficiaryFinancials,
@@ -96,6 +97,20 @@ async function linkExistingAccountByEmail(
   }
 }
 
+export class InvalidSellerError extends Error {}
+
+/** El vendedor tiene que ser un empleado del tenant. */
+async function assertSeller(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  employeeId: string | undefined,
+): Promise<string | null> {
+  if (!employeeId) return null;
+  const employee = await tx.employee.findUnique({ where: { id: employeeId } });
+  if (!employee || employee.tenantId !== tenantId) throw new InvalidSellerError();
+  return employee.id;
+}
+
 export async function createEvent(tenantId: string, adminUserId: string, input: CreateEventInput) {
   return withTenant(tenantId, async (tx) => {
     const basePeriod = firstOfCurrentMonth();
@@ -109,6 +124,12 @@ export async function createEvent(tenantId: string, adminUserId: string, input: 
         titularName: input.titularName ?? null,
         titularEmail: input.titularEmail,
         minGuests: input.type === 'EGRESO' ? (input.minGuests ?? null) : null,
+        soldByEmployeeId: await assertSeller(tx, tenantId, input.soldByEmployeeId),
+        soldAt: input.soldByEmployeeId
+          ? input.soldAt
+            ? new Date(input.soldAt)
+            : new Date()
+          : null,
         createdById: adminUserId,
       },
     });
@@ -176,8 +197,12 @@ export async function createEvent(tenantId: string, adminUserId: string, input: 
             valorBase: card.baseValue,
           })),
         ...(input.type === 'EGRESO' ? { alumnos: input.alumnos.length } : {}),
+        ...(event.soldByEmployeeId ? { vendidoPor: event.soldByEmployeeId } : {}),
       },
     });
+
+    // Con las tarjetas ya creadas (la comisión % sale del valor del evento).
+    await syncSaleCommission(tx, tenantId, event.id);
 
     return event;
   });
@@ -207,6 +232,12 @@ export async function updateEvent(tenantId: string, eventId: string, input: Upda
       titularPhone: input.titularPhone ?? null,
       minGuests: before.type === 'EGRESO' ? (input.minGuests ?? null) : null,
       status: input.status,
+      soldByEmployeeId: await assertSeller(tx, tenantId, input.soldByEmployeeId),
+      soldAt: input.soldByEmployeeId
+        ? input.soldAt
+          ? new Date(input.soldAt)
+          : (before.soldAt ?? new Date())
+        : null,
     };
     const changes = diffFields(before, data, [
       'name',
@@ -216,10 +247,17 @@ export async function updateEvent(tenantId: string, eventId: string, input: Upda
       'titularPhone',
       'minGuests',
       'status',
+      'soldByEmployeeId',
+      'soldAt',
     ]);
     if (!changes) return before;
 
     const event = await tx.event.update({ where: { id: eventId }, data });
+
+    // Vendedor, fecha de venta o estado (cancelado) cambian la comisión.
+    if (changes.soldByEmployeeId || changes.soldAt || changes.status) {
+      await syncSaleCommission(tx, tenantId, eventId);
+    }
 
     if (before.titularEmail !== input.titularEmail) {
       await tx.eventAccount.deleteMany({ where: { tenantId, eventId, role: 'TITULAR' } });
@@ -355,7 +393,10 @@ export async function getEventDetailForAdmin(
   eventId: string,
 ): Promise<AdminEventDetail> {
   return withTenant(tenantId, async (tx) => {
-    const event = await tx.event.findUnique({ where: { id: eventId } });
+    const event = await tx.event.findUnique({
+      where: { id: eventId },
+      include: { soldByEmployee: { select: { fullName: true } } },
+    });
     if (!event || event.tenantId !== tenantId) {
       throw new EventNotFoundError();
     }
@@ -401,6 +442,9 @@ export async function getEventDetailForAdmin(
       titularEmail: event.titularEmail,
       titularPhone: event.titularPhone,
       minGuests: event.minGuests,
+      soldByEmployeeId: event.soldByEmployeeId,
+      soldByEmployeeName: event.soldByEmployee?.fullName ?? null,
+      soldAt: event.soldAt?.toISOString() ?? null,
       beneficiaries: beneficiaryDetails,
       totals: {
         totalValue,

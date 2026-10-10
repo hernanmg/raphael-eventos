@@ -100,6 +100,33 @@ enum SupplyUnit {
   UNIDAD
 }
 
+/// Tipo de rubro de costeo (feedback 2026-10): un único catálogo en vez de
+/// tres tablas. FIJO = gasto de salón prorrateado entre los eventos del mes.
+enum CostCategoryKind {
+  INSUMO
+  SERVICIO
+  FIJO
+}
+
+/// Gasto generado solo por el sistema (vs. cargado a mano).
+enum ExpenseAutoSource {
+  /// Empleado asignado a un evento con monto por evento trabajado.
+  STAFF_EVENT
+  /// Comisión del empleado que vendió el evento.
+  SALE_COMMISSION
+  /// Fijo + horas de una liquidación confirmada (gasto del mes).
+  PAYROLL
+}
+
+enum PayrollLineKind {
+  FIJO
+  HORAS
+  POR_EVENTO
+  COMISION
+  ADELANTO
+  OTRO
+}
+
 /// Fase 3. Una baja de invitado lo pasa a CANCELADO (no se borra): el QR deja
 /// de servir y se conserva el historial de check-in.
 enum GuestStatus {
@@ -128,23 +155,23 @@ enum AuditAction {
 }
 
 model Tenant {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  plan      Plan     @default(BASICA)
+  id   String @id @default(cuid())
+  name String
+  slug String @unique
+  plan Plan   @default(BASICA)
 
   /// Perfil público del salón (Fase 3) — antes hardcodeado en la landing.
   /// Lo leen la landing y el micrositio de invitados. `tenants` no tiene RLS
   /// y app_user solo tiene SELECT: se cargan por seed/operación.
-  whatsappNumber String?
-  instagramUrl   String?
-  address        String?
-  mapsUrl        String?
+  whatsappNumber      String?
+  instagramUrl        String?
+  address             String?
+  mapsUrl             String?
   /// Email de contacto público del salón (solo se muestra como link).
-  contactEmail   String?
+  contactEmail        String?
   /// Días antes del evento en que se cierra la confirmación autogestionada
   /// por link. Las excepciones las carga el titular/admin.
-  rsvpCloseDaysBefore Int @default(2)
+  rsvpCloseDaysBefore Int     @default(2)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -159,30 +186,30 @@ model Tenant {
 /// Cuenta de una persona. Staff (admin/vendedor) y clientes conviven en la misma
 /// tabla, diferenciados por `role` — así lo pidió el usuario explícitamente.
 model User {
-  id              String    @id @default(cuid())
-  tenantId        String
-  tenant          Tenant    @relation(fields: [tenantId], references: [id])
-  email           String
-  passwordHash    String
-  role            Role      @default(CLIENTE)
-  fullName        String
-  phone           String?
-  emailVerifiedAt DateTime?
+  id                 String    @id @default(cuid())
+  tenantId           String
+  tenant             Tenant    @relation(fields: [tenantId], references: [id])
+  email              String
+  passwordHash       String
+  role               Role      @default(CLIENTE)
+  fullName           String
+  phone              String?
+  emailVerifiedAt    DateTime?
   /// true mientras el usuario tenga una contraseña temporal generada por el
   /// admin (alta de acceso de un empleado PUERTA o reseteo) — el backend le
   /// niega todo salvo cambiarla.
-  mustChangePassword Boolean @default(false)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  mustChangePassword Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   eventAccounts        EventAccount[]
-  claimedBeneficiaries EventBeneficiary[] @relation("BeneficiaryAccount")
-  createdEvents        Event[]            @relation("EventCreatedBy")
-  recordedPayments     Payment[]          @relation("PaymentRecordedBy")
-  triggeredIpcFetches  IpcIndexValue[]    @relation("IpcTriggeredBy")
+  claimedBeneficiaries EventBeneficiary[]    @relation("BeneficiaryAccount")
+  createdEvents        Event[]               @relation("EventCreatedBy")
+  recordedPayments     Payment[]             @relation("PaymentRecordedBy")
+  triggeredIpcFetches  IpcIndexValue[]       @relation("IpcTriggeredBy")
   authTokens           AuthToken[]
-  createdGuests        EventGuest[]       @relation("GuestCreatedBy")
-  guestCheckIns        GuestCheckIn[]     @relation("CheckInScannedBy")
+  createdGuests        EventGuest[]          @relation("GuestCreatedBy")
+  guestCheckIns        GuestCheckIn[]        @relation("CheckInScannedBy")
   employee             Employee?
   cardAdjustments      EventCardAdjustment[] @relation("CardAdjustedBy")
 
@@ -192,48 +219,53 @@ model User {
 }
 
 model Event {
-  id           String      @id @default(cuid())
-  tenantId     String
-  tenant       Tenant      @relation(fields: [tenantId], references: [id])
-  type         EventType
-  name         String
-  eventDate    DateTime?
-  status       EventStatus @default(ACTIVO)
+  id               String      @id @default(cuid())
+  tenantId         String
+  tenant           Tenant      @relation(fields: [tenantId], references: [id])
+  type             EventType
+  name             String
+  eventDate        DateTime?
+  status           EventStatus @default(ACTIVO)
   /// Contacto del contratante cargado por el admin al crear el evento (familia
   /// en 15/boda/empresarial, colegio/comisión en egreso). Se usa para el
   /// matching automático al registrarse/loguearse con ese mismo email.
-  titularName  String?
-  titularEmail String?
+  titularName      String?
+  titularEmail     String?
   /// Teléfono del contratante — sumado en Fase 2 para poder mandarle
   /// recordatorios de WhatsApp (ver módulo de recordatorios). No existía en
   /// Fase 1 porque no hacía falta para nada del portal/panel hasta ahora.
-  titularPhone String?
+  titularPhone     String?
   /// Mínimo de invitados contratado. El avance se calcula en runtime contra
   /// COUNT(EventGuest CONFIRMADO) — no hay contador persistido (Fase 3).
-  minGuests    Int?
+  minGuests        Int?
   /// Hora de inicio "HH:mm" para la cuenta regresiva del micrositio
   /// (eventDate es solo fecha).
-  startTime    String?
+  startTime        String?
   /// Link externo de fotos que pasa el fotógrafo (Google Fotos u otro) — lo
   /// carga el admin, se muestra en el micrositio. Sin upload nativo.
-  photosUrl    String?
-  createdById  String?
-  createdBy    User?       @relation("EventCreatedBy", fields: [createdById], references: [id])
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  photosUrl        String?
+  /// Empleado que vendió el evento: genera su comisión por evento vendido
+  /// (feedback 2026-10 — la comisión es por venta, no por evento trabajado).
+  soldByEmployeeId String?
+  soldByEmployee   Employee?   @relation("EventSoldBy", fields: [soldByEmployeeId], references: [id])
+  /// Fecha de la venta: define en qué mes se liquida la comisión.
+  soldAt           DateTime?
+  createdById      String?
+  createdBy        User?       @relation("EventCreatedBy", fields: [createdById], references: [id])
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 
   beneficiaries EventBeneficiary[]
   accounts      EventAccount[]
 
-  supplyLines       EventSupplyLine[]
-  serviceCosts      EventServiceCost[]
-  staffAssignments  EventStaffAssignment[]
-  timeEntries       EmployeeTimeEntry[]
+  expenses           Expense[]
+  staffAssignments   EventStaffAssignment[]
+  timeEntries        EmployeeTimeEntry[]
   commissionAdvances EmployeeCommissionAdvance[]
   convertedFromLeads Lead[]
-  contract          EventContract?
-  guests            EventGuest[]
-  guestCheckIns     GuestCheckIn[]
+  contract           EventContract?
+  guests             EventGuest[]
+  guestCheckIns      GuestCheckIn[]
 
   @@index([tenantId])
   @@index([tenantId, titularEmail])
@@ -436,14 +468,20 @@ model TenantCostConfig {
   id       String @id @default(cuid())
   tenantId String @unique
 
-  gananciaPct            Decimal @db.Decimal(5, 4) @default(0.40)
-  roturaPct              Decimal @db.Decimal(5, 4) @default(0.15)
-  ivaPct                 Decimal @db.Decimal(5, 4) @default(0.21)
+  gananciaPct            Decimal @default(0.40) @db.Decimal(5, 4)
+  roturaPct              Decimal @default(0.15) @db.Decimal(5, 4)
+  ivaPct                 Decimal @default(0.21) @db.Decimal(5, 4)
   /// % de suba de un insumo que dispara la alerta de renegociación (solo
   /// informativa — decisión cerrada, nunca bloquea nada).
-  insumoRenegotiationPct Decimal @db.Decimal(5, 4) @default(0.10)
+  insumoRenegotiationPct Decimal @default(0.10) @db.Decimal(5, 4)
   /// % máximo de seña anticipada sobre el total (solo informativo, ídem).
-  advanceDepositCapPct   Decimal @db.Decimal(5, 4) @default(0.30)
+  advanceDepositCapPct   Decimal @default(0.30) @db.Decimal(5, 4)
+  /// Impuestos bancarios de la hoja COSTOS de Fede: créditos y débitos
+  /// (0,06% c/u, sobre el costo neto del evento) + un monto fijo por
+  /// transferencia (por evento).
+  bankCreditTaxPct       Decimal @default(0.0006) @db.Decimal(6, 5)
+  bankDebitTaxPct        Decimal @default(0.0006) @db.Decimal(6, 5)
+  bankTransferFee        Decimal @default(1000) @db.Decimal(12, 2)
 
   updatedAt DateTime @updatedAt
 
@@ -451,106 +489,93 @@ model TenantCostConfig {
   @@map("tenant_cost_configs")
 }
 
-/// Rubro de insumo, catálogo configurable por tenant (Verdulería, Pollo,
-/// Carnicería...).
-model SupplyCategory {
-  id        String @id @default(cuid())
-  tenantId  String
-  name      String
-  sortOrder Int    @default(0)
+/// Rubro de costeo — catálogo único por tenant (antes eran tres tablas:
+/// insumos, servicios y gastos fijos). `monthlyAmount`/`guestScaled` solo
+/// aplican a los FIJO: el monto es el ESTIMADO mensual, que se usa mientras
+/// no haya gastos reales cargados ese mes para el rubro. Los proveedores se
+/// vinculan a un rubro (dropdown) para que todo quede relacionado.
+model CostCategory {
+  id            String           @id @default(cuid())
+  tenantId      String
+  kind          CostCategoryKind
+  name          String
+  sortOrder     Int              @default(0)
+  monthlyAmount Decimal          @default(0) @db.Decimal(12, 2)
+  guestScaled   Boolean          @default(false)
 
-  supplyLines EventSupplyLine[]
+  expenses  Expense[]
+  providers Provider[]
+  employees Employee[]
 
-  @@unique([tenantId, name])
+  @@unique([tenantId, kind, name])
   @@index([tenantId])
-  @@map("supply_categories")
+  @@map("cost_categories")
 }
 
-/// Línea de insumo cargada contra un evento puntual — no hay catálogo de
-/// productos persistente porque el menú (y la lista de insumos) cambia
-/// evento a evento, tal cual el Excel real de Fede (se rehace desde cero
-/// cada vez). Columnas fijas: producto, cantidad, unidad, costo unitario —
-/// mismo criterio que la plantilla fija de importación de alumnos, sin
-/// parser genérico.
-model EventSupplyLine {
+/// Gasto real (un ticket/factura): de un evento puntual (`eventId`) o del
+/// salón en un mes (`period`, primer día del mes — gastos fijos, liquidación
+/// de personal). El costeo del evento sale de la suma de estos gastos, no de
+/// un número tipeado. Ítems opcionales (estructura de la hoja PRECIOS. de
+/// Fede): si hay ítems, `amount` es su suma (lo calcula el server).
+/// Ticket adjunto como respaldo (sin OCR — decisión cerrada).
+model Expense {
   id       String @id @default(cuid())
   tenantId String
-  eventId  String
-  event    Event  @relation(fields: [eventId], references: [id])
 
-  categoryId  String
-  category    SupplyCategory @relation(fields: [categoryId], references: [id])
-  productName String
-  quantity    Decimal @db.Decimal(10, 3)
-  unit        SupplyUnit @default(UNIDAD)
-  unitCost    Decimal @db.Decimal(12, 2)
+  eventId    String?
+  event      Event?        @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  period     DateTime?
+  date       DateTime
+  categoryId String?
+  category   CostCategory? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  providerId String?
+  provider   Provider?     @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  employeeId String?
+  employee   Employee?     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
 
-  createdAt DateTime @default(now())
+  amount Decimal @db.Decimal(12, 2)
+  detail String?
+
+  autoSource     ExpenseAutoSource?
+  /// Un ajuste a mano de un gasto auto-generado no lo pisa el sistema.
+  manuallyEdited Boolean            @default(false)
+  payrollEntryId String?            @unique
+  payrollEntry   PayrollEntry?      @relation(fields: [payrollEntryId], references: [id])
+
+  receiptKey      String?
+  receiptName     String?
+  receiptMimeType String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items ExpenseItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, eventId])
+  @@index([tenantId, period])
+  @@map("expenses")
+}
+
+/// Ítem de un gasto: producto, presentación (texto libre, como en el Excel:
+/// "x6", "5L"), cantidad, unidad y precio unitario.
+model ExpenseItem {
+  id        String  @id @default(cuid())
+  tenantId  String
+  expenseId String
+  expense   Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  productName  String
+  presentation String?
+  quantity     Decimal    @db.Decimal(10, 3)
+  unit         SupplyUnit @default(UNIDAD)
+  unitCost     Decimal    @db.Decimal(12, 2)
+  sortOrder    Int        @default(0)
 
   @@index([tenantId])
   @@index([tenantId, productName])
-  @@map("event_supply_lines")
-}
-
-/// Rubro de gasto de servicio por evento, catálogo configurable (Mozos, DJ,
-/// Bacha...).
-model ServiceCostCategory {
-  id       String @id @default(cuid())
-  tenantId String
-  name     String
-
-  serviceCosts EventServiceCost[]
-
-  @@unique([tenantId, name])
-  @@index([tenantId])
-  @@map("service_cost_categories")
-}
-
-/// Línea de gasto de servicio de un evento puntual. `employeeId` opcional:
-/// si el gasto corresponde a un empleado del módulo de Personal, queda
-/// vinculado acá. `autoGenerated` marca las líneas que creó solo
-/// EventStaffAssignment (personal con componente variable) — decisión
-/// cerrada de auto-completar en vez de cargar el dato dos veces;
-/// `manuallyEdited` evita que una desasignación posterior pise un ajuste
-/// que el admin hizo a mano sobre una línea auto-generada.
-model EventServiceCost {
-  id       String @id @default(cuid())
-  tenantId String
-  eventId  String
-  event    Event  @relation(fields: [eventId], references: [id])
-
-  categoryId String?
-  category   ServiceCostCategory? @relation(fields: [categoryId], references: [id])
-  employeeId String?
-  employee   Employee? @relation(fields: [employeeId], references: [id])
-
-  autoGenerated  Boolean @default(false)
-  manuallyEdited Boolean @default(false)
-  amount         Decimal @db.Decimal(12, 2)
-  note           String?
-
-  createdAt DateTime @default(now())
-
-  @@index([tenantId])
-  @@map("event_service_costs")
-}
-
-/// Gasto fijo de salón, catálogo configurable (Luz, Gas, Alquiler...).
-/// `monthlyAmount` es el valor "celda amarilla" que Fede pisa cada 2-3
-/// meses — sin historial versionado (a diferencia de IpcIndexValue no hay
-/// una fuente externa que auditar). `guestScaled` es true solo en Alquiler
-/// hoy: prorrateo extra por cada 100 invitados, configurable por si otro
-/// rubro lo necesita en otro salón.
-model FixedCostCategory {
-  id            String  @id @default(cuid())
-  tenantId      String
-  name          String
-  monthlyAmount Decimal @db.Decimal(12, 2)
-  guestScaled   Boolean @default(false)
-
-  @@unique([tenantId, name])
-  @@index([tenantId])
-  @@map("fixed_cost_categories")
+  @@map("expense_items")
 }
 
 /// Empleado del salón (Pao, Adri, etc. en el caso real de Fede).
@@ -562,28 +587,38 @@ model Employee {
   id       String @id @default(cuid())
   tenantId String
 
-  fullName           String
+  fullName            String
   /// Obligatorio desde Fase 3 (validado en EmployeeInputSchema). Nullable en
   /// la base solo por las filas cargadas antes de que existiera el campo.
-  email              String?
+  email               String?
   /// Login con rol PUERTA para el check-in (Fase 3). null = sin acceso.
-  userId             String?              @unique
-  user               User?                @relation(fields: [userId], references: [id])
-  contractType       EmployeeContractType
-  fixedMonthlyAmount Decimal              @db.Decimal(12, 2) @default(0)
-  /// Monto fijo por evento si es MONTO_POR_EVENTO, o % si es COMISION_PCT.
-  variableType  EmployeeVariableType @default(NINGUNO)
-  variableValue Decimal              @db.Decimal(12, 2) @default(0)
-  active        Boolean              @default(true)
+  userId              String?              @unique
+  user                User?                @relation(fields: [userId], references: [id])
+  contractType        EmployeeContractType
+  fixedMonthlyAmount  Decimal              @default(0) @db.Decimal(12, 2)
+  /// Por evento TRABAJADO (asignación): monto fijo si MONTO_POR_EVENTO, o %
+  /// del valor del evento si COMISION_PCT.
+  variableType        EmployeeVariableType @default(NINGUNO)
+  variableValue       Decimal              @default(0) @db.Decimal(12, 2)
+  /// Por evento VENDIDO (Event.soldByEmployeeId): mismo par tipo/valor.
+  saleCommissionType  EmployeeVariableType @default(NINGUNO)
+  saleCommissionValue Decimal              @default(0) @db.Decimal(12, 2)
+  /// Valor hora (hoja "HORAS SALON.": horas del mes × valor hora).
+  hourlyRate          Decimal              @default(0) @db.Decimal(12, 2)
+  /// Rubro de costeo al que van sus gastos (por evento y liquidación).
+  costCategoryId      String?
+  costCategory        CostCategory?        @relation(fields: [costCategoryId], references: [id])
+  active              Boolean              @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   assignments        EventStaffAssignment[]
-  serviceCosts        EventServiceCost[]
-  timeEntries         EmployeeTimeEntry[]
-  payrollEntries      PayrollEntry[]
-  commissionAdvances  EmployeeCommissionAdvance[]
+  expenses           Expense[]
+  eventsSold         Event[]                     @relation("EventSoldBy")
+  timeEntries        EmployeeTimeEntry[]
+  payrollEntries     PayrollEntry[]
+  commissionAdvances EmployeeCommissionAdvance[]
 
   @@index([tenantId])
   @@map("employees")
@@ -639,19 +674,21 @@ model PayrollEntry {
   id       String @id @default(cuid())
   tenantId String
 
-  employeeId String
-  employee   Employee @relation(fields: [employeeId], references: [id])
+  employeeId        String
+  employee          Employee @relation(fields: [employeeId], references: [id])
   /// Primer día del mes que representa el período liquidado.
   period            DateTime
   fixedComponent    Decimal  @db.Decimal(12, 2)
   variableComponent Decimal  @db.Decimal(12, 2)
-  advancesDeducted  Decimal  @db.Decimal(12, 2) @default(0)
+  advancesDeducted  Decimal  @default(0) @db.Decimal(12, 2)
   note              String?
   createdById       String?
 
   createdAt DateTime @default(now())
 
   commissionAdvances EmployeeCommissionAdvance[]
+  lines              PayrollLine[]
+  expense            Expense?
 
   @@unique([employeeId, period])
   @@index([tenantId])
@@ -661,6 +698,24 @@ model PayrollEntry {
 /// Pro: comisión adelantada a cuenta, registrada individualmente (así lo
 /// anota Fede: "2 comisiones adelantadas", "7 comisiones adelantadas...").
 /// Se reconcilia contra un PayrollEntry del período cuando se liquida.
+/// Línea de una liquidación confirmada (editable antes de confirmar):
+/// cantidad × unitario = monto. ADELANTO va en negativo.
+model PayrollLine {
+  id             String          @id @default(cuid())
+  tenantId       String
+  payrollEntryId String
+  payrollEntry   PayrollEntry    @relation(fields: [payrollEntryId], references: [id], onDelete: Cascade)
+  kind           PayrollLineKind
+  description    String
+  quantity       Decimal         @db.Decimal(10, 2)
+  unitAmount     Decimal         @db.Decimal(12, 2)
+  amount         Decimal         @db.Decimal(12, 2)
+  sortOrder      Int             @default(0)
+
+  @@index([tenantId])
+  @@map("payroll_lines")
+}
+
 model EmployeeCommissionAdvance {
   id       String @id @default(cuid())
   tenantId String
@@ -693,9 +748,9 @@ model Lead {
   id       String @id @default(cuid())
   tenantId String
 
-  fullName String
-  phone    String
-  eventType EventType
+  fullName       String
+  phone          String
+  eventType      EventType
   /// Fecha tentativa que el interesado marcó en el form de la landing —
   /// opcional (puede no saber la fecha todavía). Se usa para el calendario.
   interestedDate DateTime?
@@ -707,7 +762,7 @@ model Lead {
   /// lead (vía el alta normal de evento, no automático) — deja de aparecer
   /// como tentativo en el calendario, el Event real ya lo cubre.
   convertedEventId String?
-  convertedEvent    Event?  @relation(fields: [convertedEventId], references: [id])
+  convertedEvent   Event?  @relation(fields: [convertedEventId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -750,12 +805,12 @@ model TenantReminderConfig {
   id       String @id @default(cuid())
   tenantId String @unique
 
-  enabled Boolean         @default(false)
-  channel ReminderChannel @default(WHATSAPP)
+  enabled                     Boolean         @default(false)
+  channel                     ReminderChannel @default(WHATSAPP)
   /// Recordar cada N días mientras haya saldo pendiente.
-  cadenceDaysIfPendingBalance Int @default(15)
+  cadenceDaysIfPendingBalance Int             @default(15)
   /// Recordar si faltan X días o menos para el evento y sigue sin saldarse.
-  daysBeforeEventIfUnpaid     Int @default(7)
+  daysBeforeEventIfUnpaid     Int             @default(7)
 
   updatedAt DateTime @updatedAt
 
@@ -803,11 +858,11 @@ model EventGuest {
   phone    String?
   email    String?
 
-  status GuestStatus @default(CONFIRMADO)
-  source GuestSource
+  status    GuestStatus @default(CONFIRMADO)
+  source    GuestSource
   /// "Entrada después de las 12": invitado cargado igual que el resto, con su
   /// propio QR — solo cambia la etiqueta que ve el personal de la puerta.
-  lateEntry Boolean @default(false)
+  lateEntry Boolean     @default(false)
 
   /// Lo que codifica el QR (aleatorio, no adivinable). El QR se dibuja en el
   /// navegador, no se guarda como imagen.
@@ -887,7 +942,7 @@ model EventCardAdjustment {
   reason             String
 
   createdById String
-  createdBy   User   @relation("CardAdjustedBy", fields: [createdById], references: [id])
+  createdBy   User     @relation("CardAdjustedBy", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
 
   @@index([tenantId])
@@ -902,24 +957,33 @@ model Provider {
   id       String @id @default(cuid())
   tenantId String
 
-  name         String
-  /// Rubro libre (fotógrafo, decoración, sonido...), con sugerencias de los ya cargados.
-  category     String
-  description  String?
-  contactName  String?
-  phone        String?
-  email        String?
-  instagramUrl String?
-  websiteUrl   String?
+  name            String
+  /// Nombre del rubro (desnormalizado de costCategory para el listado
+  /// público; antes era texto libre).
+  category        String
+  /// Rubro de costeo (dropdown) — vincula el proveedor con los gastos.
+  costCategoryId  String?
+  costCategory    CostCategory? @relation(fields: [costCategoryId], references: [id])
+  /// false = proveedor interno de compras (Macro, Kristal...): no aparece en
+  /// la landing ni en el portal, solo en costeo.
+  showInDirectory Boolean       @default(true)
+  description     String?
+  contactName     String?
+  phone           String?
+  email           String?
+  instagramUrl    String?
+  websiteUrl      String?
   /// A qué tipos de evento aplica (uno o más).
-  eventTypes   EventType[]
-  referralPct  Decimal?    @db.Decimal(5, 2)
-  referralNote String?
-  active       Boolean     @default(true)
-  sortOrder    Int         @default(0)
+  eventTypes      EventType[]
+  referralPct     Decimal?      @db.Decimal(5, 2)
+  referralNote    String?
+  active          Boolean       @default(true)
+  sortOrder       Int           @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  expenses Expense[]
 
   @@index([tenantId])
   @@map("providers")
@@ -975,4 +1039,3 @@ model AuditLog {
   @@index([tenantId, eventId])
   @@map("audit_logs")
 }
-

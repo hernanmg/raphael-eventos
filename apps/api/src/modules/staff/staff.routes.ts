@@ -4,7 +4,7 @@ import {
   EmployeeInputSchema,
   EmployeeTimeEntryInputSchema,
   EventStaffAssignmentInputSchema,
-  PayrollPeriodInputSchema,
+  PayrollConfirmInputSchema,
 } from '@raphael-eventos/shared';
 import { requireRole } from '../../middleware/requireRole';
 import { requirePlan } from '../../middleware/requirePlan';
@@ -14,7 +14,7 @@ import {
   EmailInUseError,
   NotFoundError,
   assignStaff,
-  computePayrollPeriod,
+  confirmPayroll,
   createEmployee,
   grantDoorAccess,
   listCommissionAdvances,
@@ -22,6 +22,7 @@ import {
   listEventStaffAssignments,
   listPayrollEntries,
   listTimeEntries,
+  previewPayroll,
   recordCommissionAdvance,
   recordTimeEntry,
   unassignStaff,
@@ -157,11 +158,28 @@ staffRouter.get('/employees/:id/payroll', requirePlan('PRO'), async (req, res, n
   }
 });
 
+staffRouter.get('/employees/:id/payroll/preview', requirePlan('PRO'), async (req, res, next) => {
+  try {
+    const period = typeof req.query.period === 'string' ? req.query.period : '';
+    if (!/^\d{4}-\d{2}$/.test(period)) {
+      res.status(400).json({ error: { message: 'Elegí el mes (YYYY-MM)' } });
+      return;
+    }
+    res.json({ preview: await previewPayroll(req.tenantId, req.params.id!, period) });
+  } catch (err) {
+    if (err instanceof NotFoundError) {
+      res.status(404).json({ error: { message: 'Empleado no encontrado' } });
+      return;
+    }
+    next(err);
+  }
+});
+
 staffRouter.post('/employees/:id/payroll', requirePlan('PRO'), async (req, res, next) => {
   try {
-    const input = parseBody(PayrollPeriodInputSchema, req.body, res);
+    const input = parseBody(PayrollConfirmInputSchema, req.body, res);
     if (!input) return;
-    const entry = await computePayrollPeriod(req.tenantId, req.params.id!, input);
+    const entry = await confirmPayroll(req.tenantId, req.params.id!, input);
     res.status(201).json({ entry });
   } catch (err) {
     if (err instanceof NotFoundError) {

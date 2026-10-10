@@ -43,12 +43,16 @@ function toAdminProvider(row: ProviderRow): AdminProvider {
     referralNote: row.referralNote,
     active: row.active,
     sortOrder: row.sortOrder,
+    costCategoryId: row.costCategoryId,
+    showInDirectory: row.showInDirectory,
   };
 }
 
 const PROVIDER_FIELDS = [
   'name',
   'category',
+  'costCategoryId',
+  'showInDirectory',
   'description',
   'contactName',
   'phone',
@@ -62,10 +66,26 @@ const PROVIDER_FIELDS = [
   'sortOrder',
 ] as const;
 
-function providerData(input: ProviderInput) {
+export class InvalidProviderCategoryError extends Error {}
+
+/** El rubro es un dropdown de los rubros de costeo (feedback 2026-10); su
+ *  nombre se guarda desnormalizado en `category` para el listado público. */
+async function resolveCategoryName(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  costCategoryId: string,
+): Promise<string> {
+  const category = await tx.costCategory.findUnique({ where: { id: costCategoryId } });
+  if (!category || category.tenantId !== tenantId) throw new InvalidProviderCategoryError();
+  return category.name;
+}
+
+function providerData(input: ProviderInput, categoryName: string) {
   return {
     name: input.name,
-    category: input.category,
+    category: categoryName,
+    costCategoryId: input.costCategoryId,
+    showInDirectory: input.showInDirectory,
     description: input.description ?? null,
     contactName: input.contactName ?? null,
     phone: input.phone ?? null,
@@ -92,7 +112,10 @@ export async function listAdminProviders(tenantId: string): Promise<AdminProvide
 
 export async function createProvider(tenantId: string, input: ProviderInput) {
   return withTenant(tenantId, async (tx) => {
-    const row = await tx.provider.create({ data: { tenantId, ...providerData(input) } });
+    const categoryName = await resolveCategoryName(tx, tenantId, input.costCategoryId);
+    const row = await tx.provider.create({
+      data: { tenantId, ...providerData(input, categoryName) },
+    });
     await audit(tx, tenantId, {
       entityType: 'Provider',
       entityId: row.id,
@@ -108,7 +131,7 @@ export async function updateProvider(tenantId: string, id: string, input: Provid
   return withTenant(tenantId, async (tx) => {
     const before = await tx.provider.findUnique({ where: { id } });
     if (!before || before.tenantId !== tenantId) throw new ProviderNotFoundError();
-    const data = providerData(input);
+    const data = providerData(input, await resolveCategoryName(tx, tenantId, input.costCategoryId));
     const row = await tx.provider.update({ where: { id }, data });
     const changes = diffFields(before, data, [...PROVIDER_FIELDS]);
     if (changes) {
@@ -146,7 +169,12 @@ export async function listPublicProviders(
 ): Promise<PublicProvider[]> {
   return withTenant(tenantId, async (tx) => {
     const rows = await tx.provider.findMany({
-      where: { tenantId, active: true, ...(eventType ? { eventTypes: { has: eventType } } : {}) },
+      where: {
+        tenantId,
+        active: true,
+        showInDirectory: true,
+        ...(eventType ? { eventTypes: { has: eventType } } : {}),
+      },
       orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
     });
     return rows.map(toPublicProvider);
@@ -169,7 +197,7 @@ export async function listPortalProviders(
     const eventTypes = [...new Set(accounts.map((a) => a.event.type))];
     if (eventTypes.length === 0) return { eventTypes, providers: [] };
     const rows = await tx.provider.findMany({
-      where: { tenantId, active: true, eventTypes: { hasSome: eventTypes } },
+      where: { tenantId, active: true, showInDirectory: true, eventTypes: { hasSome: eventTypes } },
       orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
     });
     return { eventTypes, providers: rows.map(toPublicProvider) };

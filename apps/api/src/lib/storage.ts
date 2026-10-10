@@ -121,3 +121,4 @@ export const storageDriver: 'supabase' | 'local' =
 
 export const contractStorage: FileStorage = createStorage('contracts');
 export const sponsorLogoStorage: FileStorage = createStorage('sponsors');
+export const receiptStorage: FileStorage = createStorage('receipts');

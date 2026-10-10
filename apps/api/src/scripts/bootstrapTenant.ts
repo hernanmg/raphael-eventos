@@ -100,29 +100,37 @@ async function main() {
       });
 
       let created = 0;
+      // Catálogo único de rubros (cost_categories, con `kind`).
       for (const [index, name] of config.costing.supplyCategories.entries()) {
-        const exists = await tx.supplyCategory.findFirst({ where: { tenantId, name } });
+        const exists = await tx.costCategory.findFirst({
+          where: { tenantId, kind: 'INSUMO', name },
+        });
         if (!exists) {
-          await tx.supplyCategory.create({ data: { tenantId, name, sortOrder: index } });
+          await tx.costCategory.create({
+            data: { tenantId, kind: 'INSUMO', name, sortOrder: index },
+          });
           created++;
         }
       }
       for (const name of config.costing.serviceCostCategories) {
-        const exists = await tx.serviceCostCategory.findFirst({ where: { tenantId, name } });
+        const exists = await tx.costCategory.findFirst({
+          where: { tenantId, kind: 'SERVICIO', name },
+        });
         if (!exists) {
-          await tx.serviceCostCategory.create({ data: { tenantId, name } });
+          await tx.costCategory.create({ data: { tenantId, kind: 'SERVICIO', name } });
           created++;
         }
       }
       for (const category of config.costing.fixedCostCategories) {
-        const exists = await tx.fixedCostCategory.findFirst({
-          where: { tenantId, name: category.name },
+        const exists = await tx.costCategory.findFirst({
+          where: { tenantId, kind: 'FIJO', name: category.name },
         });
         if (!exists) {
-          // Monto 0: el valor real lo carga el salón ("celda amarilla").
-          await tx.fixedCostCategory.create({
+          // Monto 0: el estimado lo carga el salón ("celda amarilla").
+          await tx.costCategory.create({
             data: {
               tenantId,
+              kind: 'FIJO',
               name: category.name,
               monthlyAmount: 0,
               guestScaled: category.guestScaled ?? false,

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   CardAdjustmentInput,
   EventType,
@@ -109,10 +109,13 @@ export function usePortalProviders() {
   return useQuery({ queryKey: ['portal', 'providers'], queryFn: api.getPortalProviders });
 }
 
-export function useYearReport(year: number) {
+export function useYearReport(year: number, eventIds: string[] = []) {
   return useQuery({
-    queryKey: ['admin', 'reports', year],
-    queryFn: () => api.getYearReport(year),
+    queryKey: ['admin', 'reports', year, eventIds],
+    queryFn: () => api.getYearReport(year, eventIds),
     select: (data) => data.report,
+    // Al cambiar el filtro por evento se sigue mostrando el reporte anterior
+    // mientras llega el nuevo, en vez de vaciar la pantalla.
+    placeholderData: keepPreviousData,
   });
 }

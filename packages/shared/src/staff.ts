@@ -2,8 +2,12 @@
 // horas/liquidación) — ver CLAUDE.md "Fase 2 — costeo y personal".
 
 import { z } from 'zod';
-import { EmployeeContractTypeSchema, EmployeeVariableTypeSchema } from './enums';
-import type { EmployeeContractType, EmployeeVariableType } from './enums';
+import {
+  EmployeeContractTypeSchema,
+  EmployeeVariableTypeSchema,
+  PayrollLineKindSchema,
+} from './enums';
+import type { EmployeeContractType, EmployeeVariableType, PayrollLineKind } from './enums';
 import { optionalText } from './zodHelpers';
 
 export const EmployeeInputSchema = z.object({
@@ -12,8 +16,16 @@ export const EmployeeInputSchema = z.object({
   email: z.string().trim().toLowerCase().email('Email inválido'),
   contractType: EmployeeContractTypeSchema,
   fixedMonthlyAmount: z.coerce.number().min(0).max(1_000_000_000).default(0),
+  /** Por evento TRABAJADO (asignación al evento). */
   variableType: EmployeeVariableTypeSchema.default('NINGUNO'),
   variableValue: z.coerce.number().min(0).max(1_000_000_000).default(0),
+  /** Por evento VENDIDO (comisión de venta — decisión del cliente 2026-10). */
+  saleCommissionType: EmployeeVariableTypeSchema.default('NINGUNO'),
+  saleCommissionValue: z.coerce.number().min(0).max(1_000_000_000).default(0),
+  /** Valor hora (hoja "HORAS SALON." de Fede). */
+  hourlyRate: z.coerce.number().min(0).max(100_000_000).default(0),
+  /** Rubro de costeo al que van sus gastos (por evento y liquidación). */
+  costCategoryId: optionalText(z.string().trim().min(1)),
   active: z.coerce.boolean().default(true),
 });
 export type EmployeeInput = z.infer<typeof EmployeeInputSchema>;
@@ -38,6 +50,24 @@ export const PayrollPeriodInputSchema = z.object({
 });
 export type PayrollPeriodInput = z.infer<typeof PayrollPeriodInputSchema>;
 
+/** Línea de liquidación editable antes de confirmar: cantidad × unitario. */
+export const PayrollLineInputSchema = z.object({
+  kind: PayrollLineKindSchema,
+  description: z.string().trim().min(1, 'Falta la descripción').max(200),
+  quantity: z.coerce.number().min(0).max(100_000),
+  /** En ADELANTO, el monto a descontar (positivo — se resta solo). */
+  unitAmount: z.coerce.number().min(0).max(1_000_000_000),
+});
+export type PayrollLineInput = z.infer<typeof PayrollLineInputSchema>;
+
+export const PayrollConfirmInputSchema = z.object({
+  /** "YYYY-MM" o cualquier fecha del mes. */
+  period: z.string().trim().min(1, 'Elegí el período'),
+  lines: z.array(PayrollLineInputSchema).min(1, 'La liquidación no tiene líneas').max(100),
+  note: optionalText(z.string().trim().max(300)),
+});
+export type PayrollConfirmInput = z.infer<typeof PayrollConfirmInputSchema>;
+
 export const CommissionAdvanceInputSchema = z.object({
   date: z.string().trim().min(1, 'Elegí la fecha'),
   amount: z.coerce.number().positive().max(1_000_000_000),
@@ -55,6 +85,11 @@ export interface EmployeeSummary {
   fixedMonthlyAmount: number;
   variableType: EmployeeVariableType;
   variableValue: number;
+  saleCommissionType: EmployeeVariableType;
+  saleCommissionValue: number;
+  hourlyRate: number;
+  costCategoryId: string | null;
+  costCategoryName: string | null;
   active: boolean;
   /** Tiene login PUERTA para el check-in de invitados (Fase 3). */
   hasDoorAccess: boolean;
@@ -94,6 +129,38 @@ export interface PayrollEntrySummary {
   advancesDeducted: number;
   totalPaid: number;
   note: string | null;
+  lines: PayrollLineSummary[];
+  /** Gasto del mes generado en costeo (fijo + horas). */
+  expenseAmount: number | null;
+}
+
+export interface PayrollLineSummary {
+  id: string;
+  kind: PayrollLineKind;
+  description: string;
+  quantity: number;
+  unitAmount: number;
+  /** quantity × unitAmount (negativo en ADELANTO). */
+  amount: number;
+}
+
+/**
+ * Borrador de liquidación de un mes: líneas sugeridas a partir de lo cargado
+ * (fijo, horas × valor hora, eventos trabajados, comisiones por eventos
+ * vendidos, adelantos sin descontar). Nada se guarda hasta confirmar.
+ */
+export interface PayrollPreview {
+  period: string;
+  lines: PayrollLineInput[];
+  /** Ya hay una liquidación confirmada para ese mes (se reemplaza al confirmar). */
+  existing: PayrollEntrySummary | null;
+  reference: {
+    hours: number;
+    hourlyRate: number;
+    eventsWorked: { id: string; name: string; date: string | null; costedAmount: number }[];
+    eventsSold: { id: string; name: string; soldAt: string | null; costedAmount: number }[];
+    advances: { id: string; date: string; amount: number; note: string | null }[];
+  };
 }
 
 export interface CommissionAdvanceSummary {

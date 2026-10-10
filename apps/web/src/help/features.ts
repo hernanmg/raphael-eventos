@@ -80,15 +80,33 @@ export const helpFeatures: HelpFeature[] = [
     id: 'admin-costeo',
     title: 'Configuración de costeo (Plan Pro)',
     purpose:
-      'Solo para admin/vendedor en Plan Pro. Porcentajes de ganancia/rotura/IVA y umbrales de renegociación/tope de seña, más los catálogos de rubros de insumos, gastos de servicio y gastos fijos de salón que alimentan el costeo de cada evento.',
+      'Solo para admin/vendedor en Plan Pro. Porcentajes de ganancia, rotura e IVA (se suman, como en el Excel), impuestos bancarios (créditos, débitos y transferencia) y avisos de renegociación/tope de seña, más los rubros de insumos, servicios y gastos fijos del salón (con su monto estimado mensual), todos editables.',
     path: '/admin/costeo/config',
-    keywords: ['costeo', 'costos', 'ganancia', 'rotura', 'iva', 'insumos', 'gastos fijos', 'pro'],
+    keywords: [
+      'costeo',
+      'costos',
+      'ganancia',
+      'rotura',
+      'iva',
+      'impuestos',
+      'rubros',
+      'gastos fijos',
+      'pro',
+    ],
+  },
+  {
+    id: 'admin-gastos',
+    title: 'Gastos (Plan Pro)',
+    purpose:
+      'Solo para admin/vendedor en Plan Pro. Carga de cada gasto con rubro, proveedor, monto, detalle, ítems opcionales (producto, presentación, cantidad y precio) y foto o PDF del ticket como respaldo. Se totalizan solos por rubro: los de un evento suman a su costeo y los del salón se prorratean entre los eventos del mes.',
+    path: '/admin/gastos',
+    keywords: ['gastos', 'ticket', 'factura', 'compras', 'proveedor', 'rubro', 'costeo', 'pro'],
   },
   {
     id: 'admin-costeo-evento',
     title: 'Costeo de un evento (Plan Pro)',
     purpose:
-      'Solo para admin/vendedor en Plan Pro. Desde el detalle de un evento: carga de insumos y gastos de servicio, y el cálculo automático de costo neto, costo por 100 invitados y costo de tarjeta final.',
+      'Solo para admin/vendedor en Plan Pro. Desde el detalle de un evento: sus gastos agrupados por rubro y proveedor con cada ítem y subtotal, el prorrateo de los gastos del salón del mes, los impuestos bancarios, y el cálculo de costo neto, costo por 100 invitados y costo de tarjeta.',
     path: '/admin/eventos',
     keywords: ['costeo', 'costo tarjeta', 'costo neto', 'insumos', 'servicios', 'pro'],
   },
@@ -96,7 +114,7 @@ export const helpFeatures: HelpFeature[] = [
     id: 'admin-personal',
     title: 'Personal',
     purpose:
-      'Solo para admin/vendedor. Alta de empleados con su tipo de contratación y estructura de compensación (fijo + variable), y asignación de personal a cada evento desde su detalle — si el empleado tiene componente variable, la línea de costo se genera sola.',
+      'Solo para admin/vendedor. Alta y edición de empleados con todo lo que cobran: sueldo fijo, valor hora, monto por evento trabajado y comisión por evento vendido. La asignación a cada evento se hace desde su detalle, y el vendedor desde el alta/edición del evento — los gastos de personal se generan solos en el costeo.',
     path: '/admin/personal',
     keywords: ['personal', 'empleados', 'staff', 'asignacion', 'nomina'],
   },
@@ -104,7 +122,7 @@ export const helpFeatures: HelpFeature[] = [
     id: 'admin-liquidacion',
     title: 'Liquidación de personal (Plan Pro)',
     purpose:
-      'Solo para admin/vendedor en Plan Pro. Registro de horas trabajadas por empleado, comisiones adelantadas a cuenta, y liquidación por período (mes) que suma el fijo prorrateado más lo variable de los eventos trabajados.',
+      'Solo para admin/vendedor en Plan Pro. Registro de horas, comisiones adelantadas y liquidación del mes: trae sola una línea por concepto (fijo, horas × valor hora, eventos trabajados, comisiones por eventos vendidos, adelantos) con su cálculo, todo editable antes de confirmar. El fijo + horas confirmado pasa al costeo como gasto del mes.',
     path: '/admin/personal',
     keywords: ['liquidacion', 'horas', 'comisiones', 'sueldo', 'pro'],
   },
@@ -224,7 +242,7 @@ export const helpFeatures: HelpFeature[] = [
     id: 'admin-proveedores',
     title: 'Proveedores y sponsors',
     purpose:
-      'Solo para admin/vendedor. Directorio de proveedores aliados (rubro, contacto y tipos de evento) que se muestra en la landing y en el portal de cada cliente según su evento, y sponsors (logo + link) para la landing. La comisión de referencia es solo una nota interna: no genera cobros ni se muestra al público.',
+      'Solo para admin/vendedor. Proveedores con su rubro (el mismo del costeo), contacto y tipos de evento: los marcados para el directorio se muestran en la landing y en el portal según el evento; los de compras (Macro, Kristal…) solo se usan en los gastos. También sponsors (logo + link) para la landing. La comisión de referencia es solo una nota interna.',
     path: '/admin/proveedores',
     keywords: ['proveedores', 'fotografo', 'decoracion', 'sonido', 'sponsors', 'directorio'],
   },

@@ -1,7 +1,7 @@
 // Reportes operativos (Fase 4) — consultas sobre lo existente, sin tablas
 // propias. Informativos, no contables. Ver CLAUDE.md "Fase 4".
 
-import type { EventType } from './enums';
+import type { CardType, EventType } from './enums';
 
 export interface MonthReport {
   /** 1..12 */
@@ -32,10 +32,35 @@ export interface MonthReport {
   };
 }
 
+/** Evento elegible en el filtro de la card "Eventos" (no cancelados del año). */
+export interface ReportEventOption {
+  id: string;
+  name: string;
+  type: EventType;
+  eventDate: string;
+}
+
+/** Tarjetas (unidades) de los eventos del año: total y cuántas ya están
+ *  cubiertas por pagos con asignación por tarjeta (ver PaymentCardAllocation
+ *  — la asignación es opcional, así que "pagas" puede quedar por debajo de
+ *  lo que indica el % cobrado en $). */
+export interface CardCount {
+  quantity: number;
+  paid: number;
+}
+
 export interface YearReport {
   year: number;
   months: MonthReport[];
   totals: Omit<MonthReport, 'month' | 'eventsByType'> & { eventsByType: Record<EventType, number> };
+  /** Eventos distintos con al menos un pago en el año (los que componen la
+   *  cobranza del año). */
+  cashInEventCount: number;
+  cards: { total: CardCount; byType: Record<CardType, CardCount> };
+  /** Opciones del filtro por evento (siempre la lista completa del año). */
+  eventOptions: ReportEventOption[];
+  /** Eventos por los que está filtrado el reporte; null = todos. */
+  filteredEventIds: string[] | null;
   /** Factor IPC usado por mes (para mostrar de dónde sale el ajuste). */
   ipcFactors: (number | null)[];
 }

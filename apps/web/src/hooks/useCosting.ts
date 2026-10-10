@@ -1,10 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
-  EventServiceCostInput,
-  EventSupplyLineInput,
-  FixedCostCategoryInput,
-  ServiceCostCategoryInput,
-  SupplyCategoryInput,
+  CostCategoryInput,
+  ExpenseInput,
   TenantCostConfigInput,
 } from '@raphael-eventos/shared';
 import { api } from '../lib/api';
@@ -17,87 +14,85 @@ export function useUpdateCostConfig() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: TenantCostConfigInput) => api.updateCostConfig(input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'cost-config'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cost-config'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'events'] });
+    },
   });
 }
 
-export function useSupplyCategories() {
-  return useQuery({ queryKey: ['admin', 'supply-categories'], queryFn: api.listSupplyCategories });
+export function useCostCategories() {
+  return useQuery({ queryKey: ['admin', 'cost-categories'], queryFn: api.listCostCategories });
 }
 
-export function useCreateSupplyCategory() {
+/** Cambiar un rubro mueve el costeo (montos estimados, nombres en proveedores). */
+function invalidateCosting(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ['admin', 'cost-categories'] });
+  queryClient.invalidateQueries({ queryKey: ['admin', 'expenses'] });
+  queryClient.invalidateQueries({ queryKey: ['admin', 'events'] });
+  queryClient.invalidateQueries({ queryKey: ['admin', 'providers'] });
+}
+
+export function useCreateCostCategory() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: SupplyCategoryInput) => api.createSupplyCategory(input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'supply-categories'] }),
+    mutationFn: (input: CostCategoryInput) => api.createCostCategory(input),
+    onSuccess: () => invalidateCosting(queryClient),
   });
 }
 
-export function useDeleteSupplyCategory() {
+export function useUpdateCostCategory() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.deleteSupplyCategory(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'supply-categories'] }),
+    mutationFn: ({ id, input }: { id: string; input: CostCategoryInput }) =>
+      api.updateCostCategory(id, input),
+    onSuccess: () => invalidateCosting(queryClient),
   });
 }
 
-export function useServiceCostCategories() {
+export function useDeleteCostCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteCostCategory(id),
+    onSuccess: () => invalidateCosting(queryClient),
+  });
+}
+
+export function useExpenses(filter: { eventId?: string; month?: string }) {
   return useQuery({
-    queryKey: ['admin', 'service-cost-categories'],
-    queryFn: api.listServiceCostCategories,
+    queryKey: ['admin', 'expenses', filter],
+    queryFn: () => api.listExpenses(filter),
+    select: (data) => data.list,
   });
 }
 
-export function useCreateServiceCostCategory() {
+export function useSaveExpense() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: ServiceCostCategoryInput) => api.createServiceCostCategory(input),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['admin', 'service-cost-categories'] }),
+    mutationFn: ({
+      id,
+      input,
+      receipt,
+    }: {
+      id: string | null;
+      input: ExpenseInput;
+      receipt: File | null;
+    }) => api.saveExpense(id, input, receipt),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'events'] });
+    },
   });
 }
 
-export function useDeleteServiceCostCategory() {
+export function useDeleteExpense() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.deleteServiceCostCategory(id),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['admin', 'service-cost-categories'] }),
-  });
-}
-
-export function useFixedCostCategories() {
-  return useQuery({
-    queryKey: ['admin', 'fixed-cost-categories'],
-    queryFn: api.listFixedCostCategories,
-  });
-}
-
-export function useCreateFixedCostCategory() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: FixedCostCategoryInput) => api.createFixedCostCategory(input),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['admin', 'fixed-cost-categories'] }),
-  });
-}
-
-export function useUpdateFixedCostCategory() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, input }: { id: string; input: FixedCostCategoryInput }) =>
-      api.updateFixedCostCategory(id, input),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['admin', 'fixed-cost-categories'] }),
-  });
-}
-
-export function useDeleteFixedCostCategory() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => api.deleteFixedCostCategory(id),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['admin', 'fixed-cost-categories'] }),
+    mutationFn: (id: string) => api.deleteExpense(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'events'] });
+    },
   });
 }
 
@@ -106,41 +101,5 @@ export function useEventCosting(eventId: string | undefined, guestCount?: number
     queryKey: ['admin', 'events', eventId, 'costing', guestCount],
     queryFn: () => api.getEventCosting(eventId!, guestCount),
     enabled: Boolean(eventId),
-  });
-}
-
-function invalidateCosting(queryClient: ReturnType<typeof useQueryClient>, eventId: string) {
-  queryClient.invalidateQueries({ queryKey: ['admin', 'events', eventId, 'costing'] });
-}
-
-export function useCreateSupplyLine(eventId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: EventSupplyLineInput) => api.createEventSupplyLine(eventId, input),
-    onSuccess: () => invalidateCosting(queryClient, eventId),
-  });
-}
-
-export function useDeleteSupplyLine(eventId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => api.deleteEventSupplyLine(id),
-    onSuccess: () => invalidateCosting(queryClient, eventId),
-  });
-}
-
-export function useCreateServiceCost(eventId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: EventServiceCostInput) => api.createEventServiceCost(eventId, input),
-    onSuccess: () => invalidateCosting(queryClient, eventId),
-  });
-}
-
-export function useDeleteServiceCost(eventId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => api.deleteEventServiceCost(id),
-    onSuccess: () => invalidateCosting(queryClient, eventId),
   });
 }

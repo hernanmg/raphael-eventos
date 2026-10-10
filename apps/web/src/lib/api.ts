@@ -49,17 +49,18 @@ import type {
   EmployeeSummary,
   EmployeeTimeEntryInput,
   EmployeeTimeEntrySummary,
+  CostCategoryInput,
+  CostCategorySummary,
   EventCostingSummary,
+  ExpenseInput,
+  ExpenseList,
+  ExpenseSummary,
+  PayrollConfirmInput,
+  PayrollPreview,
   EventDetail,
-  EventServiceCostInput,
-  EventServiceCostSummary,
   EventStaffAssignmentInput,
   EventStaffAssignmentSummary,
   EventSummary,
-  EventSupplyLineInput,
-  EventSupplyLineSummary,
-  FixedCostCategoryInput,
-  FixedCostCategorySummary,
   IpcHistoryEntry,
   LoginInput,
   PayrollEntrySummary,
@@ -67,14 +68,9 @@ import type {
   ReminderConfigSummary,
   ReminderLogSummary,
   ReminderSweepResult,
-  PayrollPeriodInput,
   Plan,
   PublicUser,
   RegisterInput,
-  ServiceCostCategoryInput,
-  ServiceCostCategorySummary,
-  SupplyCategoryInput,
-  SupplyCategorySummary,
   TenantCostConfigInput,
   TenantCostConfigSummary,
 } from '@raphael-eventos/shared';
@@ -245,8 +241,12 @@ export const api = {
 
   // -- Fase 4: reportes -----------------------------------------------------
 
-  getYearReport: (year: number) =>
-    request<{ report: YearReport }>(`/api/v1/admin/reports/year?year=${year}`),
+  getYearReport: (year: number, eventIds: string[] = []) =>
+    request<{ report: YearReport }>(
+      `/api/v1/admin/reports/year?year=${year}${
+        eventIds.length ? `&eventIds=${eventIds.map(encodeURIComponent).join(',')}` : ''
+      }`,
+    ),
 
   // -- Micrositio de invitados (público, Fase 3) -----------------------
 
@@ -358,77 +358,58 @@ export const api = {
       body: JSON.stringify(input),
     }),
 
-  listSupplyCategories: () =>
-    request<{ categories: SupplyCategorySummary[] }>('/api/v1/admin/supply-categories'),
+  listCostCategories: () =>
+    request<{ categories: CostCategorySummary[] }>('/api/v1/admin/cost-categories'),
 
-  createSupplyCategory: (input: SupplyCategoryInput) =>
-    request<{ category: SupplyCategorySummary }>('/api/v1/admin/supply-categories', {
+  createCostCategory: (input: CostCategoryInput) =>
+    request<{ category: CostCategorySummary }>('/api/v1/admin/cost-categories', {
       method: 'POST',
       body: JSON.stringify(input),
     }),
 
-  deleteSupplyCategory: (id: string) =>
-    request<null>(`/api/v1/admin/supply-categories/${id}`, { method: 'DELETE' }),
-
-  listServiceCostCategories: () =>
-    request<{ categories: ServiceCostCategorySummary[] }>('/api/v1/admin/service-cost-categories'),
-
-  createServiceCostCategory: (input: ServiceCostCategoryInput) =>
-    request<{ category: ServiceCostCategorySummary }>('/api/v1/admin/service-cost-categories', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    }),
-
-  deleteServiceCostCategory: (id: string) =>
-    request<null>(`/api/v1/admin/service-cost-categories/${id}`, { method: 'DELETE' }),
-
-  listFixedCostCategories: () =>
-    request<{ categories: FixedCostCategorySummary[] }>('/api/v1/admin/fixed-cost-categories'),
-
-  createFixedCostCategory: (input: FixedCostCategoryInput) =>
-    request<{ category: FixedCostCategorySummary }>('/api/v1/admin/fixed-cost-categories', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    }),
-
-  updateFixedCostCategory: (id: string, input: FixedCostCategoryInput) =>
-    request<{ category: FixedCostCategorySummary }>(`/api/v1/admin/fixed-cost-categories/${id}`, {
+  updateCostCategory: (id: string, input: CostCategoryInput) =>
+    request<{ category: CostCategorySummary }>(`/api/v1/admin/cost-categories/${id}`, {
       method: 'PUT',
       body: JSON.stringify(input),
     }),
 
-  deleteFixedCostCategory: (id: string) =>
-    request<null>(`/api/v1/admin/fixed-cost-categories/${id}`, { method: 'DELETE' }),
+  deleteCostCategory: (id: string) =>
+    request<null>(`/api/v1/admin/cost-categories/${id}`, { method: 'DELETE' }),
 
-  createEventSupplyLine: (eventId: string, input: EventSupplyLineInput) =>
-    request<{ line: EventSupplyLineSummary }>(`/api/v1/admin/events/${eventId}/supply-lines`, {
-      method: 'POST',
-      body: JSON.stringify(input),
-    }),
+  listExpenses: (filter: { eventId?: string; month?: string }) => {
+    const params = new URLSearchParams();
+    if (filter.eventId) params.set('eventId', filter.eventId);
+    if (filter.month) params.set('month', filter.month);
+    return request<{ list: ExpenseList }>(`/api/v1/admin/expenses?${params.toString()}`);
+  },
 
-  updateEventSupplyLine: (id: string, input: EventSupplyLineInput) =>
-    request<{ line: EventSupplyLineSummary }>(`/api/v1/admin/supply-lines/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(input),
-    }),
+  /** Multipart: `data` (JSON del gasto) + `receipt` (foto/PDF del ticket, opcional). */
+  saveExpense: async (
+    id: string | null,
+    input: ExpenseInput,
+    receipt: File | null,
+  ): Promise<{ expense: ExpenseSummary }> => {
+    const form = new FormData();
+    form.append('data', JSON.stringify(input));
+    if (receipt) form.append('receipt', receipt);
+    const res = await fetch(`${API_URL}/api/v1/admin/expenses${id ? `/${id}` : ''}`, {
+      method: id ? 'PUT' : 'POST',
+      credentials: 'include',
+      body: form,
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      throw new ApiError(
+        body?.error?.message ?? 'No pudimos guardar el gasto',
+        res.status,
+        body?.error?.issues,
+      );
+    }
+    return body;
+  },
 
-  deleteEventSupplyLine: (id: string) =>
-    request<null>(`/api/v1/admin/supply-lines/${id}`, { method: 'DELETE' }),
-
-  createEventServiceCost: (eventId: string, input: EventServiceCostInput) =>
-    request<{ cost: EventServiceCostSummary }>(`/api/v1/admin/events/${eventId}/service-costs`, {
-      method: 'POST',
-      body: JSON.stringify(input),
-    }),
-
-  updateEventServiceCost: (id: string, input: EventServiceCostInput) =>
-    request<{ cost: EventServiceCostSummary }>(`/api/v1/admin/service-costs/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(input),
-    }),
-
-  deleteEventServiceCost: (id: string) =>
-    request<null>(`/api/v1/admin/service-costs/${id}`, { method: 'DELETE' }),
+  deleteExpense: (id: string) =>
+    request<null>(`/api/v1/admin/expenses/${id}`, { method: 'DELETE' }),
 
   getEventCosting: (eventId: string, guestCount?: number) =>
     request<{ costing: EventCostingSummary }>(
@@ -513,7 +494,12 @@ export const api = {
   listPayrollEntries: (employeeId: string) =>
     request<{ entries: PayrollEntrySummary[] }>(`/api/v1/admin/employees/${employeeId}/payroll`),
 
-  computePayroll: (employeeId: string, input: PayrollPeriodInput) =>
+  previewPayroll: (employeeId: string, period: string) =>
+    request<{ preview: PayrollPreview }>(
+      `/api/v1/admin/employees/${employeeId}/payroll/preview?period=${period}`,
+    ),
+
+  confirmPayroll: (employeeId: string, input: PayrollConfirmInput) =>
     request<{ entry: PayrollEntrySummary }>(`/api/v1/admin/employees/${employeeId}/payroll`, {
       method: 'POST',
       body: JSON.stringify(input),

@@ -23,6 +23,17 @@ function parseYear(req: Request): number {
     : new Date().getUTCFullYear();
 }
 
+/** `?eventIds=a,b` — filtro por evento de la card "Eventos". */
+function parseEventIds(req: Request): string[] | undefined {
+  const raw = req.query.eventIds;
+  if (typeof raw !== 'string' || !raw.trim()) return undefined;
+  return raw
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .slice(0, 200);
+}
+
 function requireFormat(req: Request, res: Response) {
   const format = parseExportFormat(req.query.format);
   if (!format) {
@@ -33,7 +44,9 @@ function requireFormat(req: Request, res: Response) {
 
 reportsRouter.get('/reports/year', async (req, res, next) => {
   try {
-    res.json({ report: await getYearReport(req.tenantId, parseYear(req)) });
+    res.json({
+      report: await getYearReport(req.tenantId, parseYear(req), parseEventIds(req)),
+    });
   } catch (err) {
     next(err);
   }
@@ -43,7 +56,7 @@ reportsRouter.get('/reports/year/export', async (req, res, next) => {
   try {
     const format = requireFormat(req, res);
     if (!format) return;
-    const report = await getYearReport(req.tenantId, parseYear(req));
+    const report = await getYearReport(req.tenantId, parseYear(req), parseEventIds(req));
     await sendExport(res, format, `reporte-${report.year}`, yearReportSheets(report));
   } catch (err) {
     next(err);

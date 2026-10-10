@@ -13,6 +13,7 @@ import {
   CardNotFoundError,
   ClientNotFoundError,
   EventNotFoundError,
+  InvalidSellerError,
   InvalidAllocationError,
   InvalidCardAdjustmentError,
   addIpcEntry,
@@ -54,6 +55,10 @@ adminRouter.post('/events', async (req, res, next) => {
     const event = await createEvent(req.tenantId, req.currentUser!.id, input);
     res.status(201).json({ event: { id: event.id, name: event.name } });
   } catch (err) {
+    if (err instanceof InvalidSellerError) {
+      res.status(400).json({ error: { message: 'Vendedor inválido' } });
+      return;
+    }
     next(err);
   }
 });
@@ -66,6 +71,10 @@ adminRouter.put('/events/:eventId', async (req, res, next) => {
     const event = await updateEvent(req.tenantId, req.params.eventId, input);
     res.json({ event: { id: event.id, name: event.name, status: event.status } });
   } catch (err) {
+    if (err instanceof InvalidSellerError) {
+      res.status(400).json({ error: { message: 'Vendedor inválido' } });
+      return;
+    }
     if (err instanceof EventNotFoundError) {
       res.status(404).json({ error: { message: 'Evento no encontrado' } });
       return;

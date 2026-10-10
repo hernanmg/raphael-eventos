@@ -1477,3 +1477,97 @@ verificada en modo producción contra la base/storage reales (solo lectura).
 Ninguna credencial está en el repo. Pendiente: Render, Vercel, prueba de
 punta a punta (pasos 6–8).
 
+
+## Feedback de uso real (2026-10-09) — costeo por gastos, personal, reportes (implementado)
+
+Ronda de feedback con la plataforma ya en producción. **Esta sección manda
+sobre "Fase 2 — costeo y personal"** donde difieran (fórmula, modelos de
+costeo, comisión, liquidación). Migración `20261010120000_gastos_personal`
+(con RLS + migración de datos). **Pendiente: aplicarla en producción**
+(`prisma migrate deploy` por el Session pooler, DEPLOY.md) antes de deployar
+este código — el código nuevo no anda contra el schema viejo.
+
+**Bug "Agregar no funciona" en costeo (real):** unique `(tenant, nombre)` →
+P2002 → 500 "Error interno", y ningún form de costeo mostraba errores ni
+permitía editar (en prod los rubros del bootstrap están en $0: la única vía
+para "cargar el monto de Luz" era re-agregar "Luz"). Fix general:
+`middleware/errorHandler.ts` mapea errores de Prisma por `name`/`code`
+(P2002 → 409 "ya existe", P2003 → 409 "está en uso", P2025 → 404) para toda
+la app; todos los forms de costeo muestran sus errores (`FormError`).
+
+**Decisiones del cliente (2026-10-10):**
+1. Fórmula de Fede, **porcentajes SUMADOS**: `tarjeta = x100 × (1 + ganancia
+   + rotura + iva)` (= ×1,76). Antes la app los componía (×1,948, ~11% más).
+2. **Impuestos bancarios entran al costeo** (hoja COSTOS: créditos 0,06%,
+   débitos 0,06%, $1.000 por transferencia — sin fórmula en el Excel).
+   Interpretación implementada: `(créditos + débitos) × (gastos del evento +
+   prorrateo)` + el monto de transferencia **una vez por evento**. Los tres
+   valores son editables en `/admin/costeo/config` (0 = no aplica).
+3. **Comisión = por evento VENDIDO**, no trabajado (hoja "NO OLVIDAR").
+4. **Presentación** de nuevo en los ítems, como texto libre ("x6", "5L").
+
+**Modelo:**
+- `CostCategory` (`kind` INSUMO/SERVICIO/FIJO, unique `tenant+kind+nombre`)
+  reemplaza los 3 catálogos (ids conservados). `monthlyAmount` = ESTIMADO
+  mensual de un FIJO; `guestScaled` igual que antes.
+- `Expense` (gasto real = un ticket) reemplaza `EventSupplyLine` y
+  `EventServiceCost` (datos migrados). Va contra un evento (`eventId`) o
+  contra un mes del salón (`period`). Rubro, proveedor (opcional), detalle,
+  ticket (foto/PDF verificado por magic bytes, ≤10 MB, storage carpeta
+  `receipts/`, sin OCR — decisión cerrada) y `ExpenseItem` opcionales
+  (producto, presentación, cantidad, unidad, precio; con ítems el monto es
+  su suma, lo calcula el server). `autoSource` = STAFF_EVENT (asignación),
+  SALE_COMMISSION (vendedor), PAYROLL (liquidación); editar uno auto lo
+  marca `manuallyEdited` y el sistema no lo pisa. FKs de Expense en
+  RESTRICT: un rubro/proveedor/empleado con gastos no se borra (409).
+- Alerta de renegociación ahora por ítem: mismo producto (sin distinguir
+  mayúsculas) en un gasto anterior con precio distinto > umbral.
+- `Provider.costCategoryId` (dropdown de rubros de costeo; `category`
+  queda desnormalizado para el listado público y se actualiza al renombrar
+  el rubro) + `showInDirectory` (false = proveedor de compras: Macro,
+  Kristal… — no sale en landing/portal). La lista de rubros sale de
+  `/admin/cost-categories`, que está detrás de `requirePlan('PRO')`: hoy el
+  único tenant es PRO; para un tenant Básica habría que abrir ese GET.
+- `Employee`: `hourlyRate` (hoja "HORAS SALON.": $5.000/h), `saleCommission
+  Type/Value` (por evento vendido; los `COMISION_PCT` viejos se migraron
+  acá), `variableType/Value` queda = por evento TRABAJADO, `costCategoryId`
+  (rubro de sus gastos). `Event.soldByEmployeeId` + `soldAt` (mes de la
+  comisión). `PayrollLine` (líneas de liquidación).
+
+**Costeo de un evento** (`computeEventCosting`): Σ gastos del evento
+(agrupados rubro → proveedor → ítems, como la hoja PRECIOS.) + prorrateo de
+los gastos del salón del mes entre los eventos NO cancelados del mes (un
+FIJO con gastos reales cargados ese mes usa el real; si no, su estimado;
+gastos del mes en rubros no-FIJO, ej. una liquidación, también se
+prorratean) + impuestos bancarios. Pantallas: `/admin/gastos` (nueva, por
+mes, totales por rubro, alta/edición con ítems y ticket),
+`/admin/costeo/config` (porcentajes mostrados como % — se guardan como
+fracción —, rubros de los 3 tipos editables), sección de costeo del evento.
+
+**Personal ↔ costeo:** asignar a un evento a alguien con monto por evento
+trabajado → gasto auto STAFF_EVENT en el evento (rubro del empleado).
+Vendedor del evento con comisión → gasto auto SALE_COMMISSION **sin rubro**
+(grupo "Comisiones de venta"; el FIJO "Comisiones" del Excel conviene
+dejarlo en $0 para no contar dos veces) — se regenera al cambiar vendedor,
+fecha de venta o estado (cancelado = sin comisión). **Liquidación**
+(`/admin/personal/:id/liquidacion`): `GET …/payroll/preview?period=YYYY-MM`
+arma el borrador (fijo, horas × valor hora, por evento trabajado con
+cantidad = eventos del mes, comisión por eventos vendidos en el mes,
+adelantos sin descontar) — no guarda nada; el admin edita cada línea y
+confirma (`POST …/payroll` con las líneas). Re-liquidar un mes lo
+reemplaza. Al confirmar, **fijo + horas + otros** pasa a ser un gasto del
+mes (PAYROLL, rubro del empleado) que se prorratea en costeo; lo por evento
+y las comisiones ya están en el costeo de cada evento y no se suman de
+nuevo. Un gasto PAYROLL no se edita/borra desde gastos (se re-liquida).
+
+**Reportes:** la card "Eventos" es un filtro (uno o varios eventos,
+`?eventIds=`) que recalcula todo el reporte; tarjetas con cantidad (total,
+pagas = unidades asignadas en pagos, por tipo) además del %; "Cobranza del
+año" con la cantidad de eventos que la componen.
+
+Verificado con curl + Playwright contra la base de dev (migración con
+conteos y sumas idénticas antes/después; costeo calculado a mano: neto
+$1.373.030,38 → ×1,76; gasto con 2 ítems + ticket; Luz real reemplazando al
+estimado en el prorrateo; edición de Pao; comisión al marcarla vendedora;
+liquidación con 7,5 h × $5.000 + 1 comisión = $137.500 y su gasto del mes
+de $37.500). Datos de prueba borrados.

@@ -13,6 +13,8 @@ export type AuditEntityType =
   | 'Payment'
   | 'IpcIndexValue'
   | 'TenantCostConfig'
+  | 'CostCategory'
+  | 'Expense'
   | 'SupplyCategory'
   | 'ServiceCostCategory'
   | 'FixedCostCategory'

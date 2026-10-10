@@ -4,7 +4,7 @@ import type {
   EmployeeInput,
   EmployeeTimeEntryInput,
   EventStaffAssignmentInput,
-  PayrollPeriodInput,
+  PayrollConfirmInput,
 } from '@raphael-eventos/shared';
 import { api } from '../lib/api';
 
@@ -77,10 +77,15 @@ export function useRecordTimeEntry(employeeId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: EmployeeTimeEntryInput) => api.recordTimeEntry(employeeId, input),
-    onSuccess: () =>
+    onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ['admin', 'employees', employeeId, 'time-entries'],
-      }),
+      });
+      // Cambia lo que sugiere el borrador de liquidación.
+      queryClient.invalidateQueries({
+        queryKey: ['admin', 'employees', employeeId, 'payroll-preview'],
+      });
+    },
   });
 }
 
@@ -91,15 +96,24 @@ export function usePayrollEntries(employeeId: string) {
   });
 }
 
-export function useComputePayroll(employeeId: string) {
+export function usePayrollPreview(employeeId: string, period: string) {
+  return useQuery({
+    queryKey: ['admin', 'employees', employeeId, 'payroll-preview', period],
+    queryFn: () => api.previewPayroll(employeeId, period),
+    select: (data) => data.preview,
+    enabled: /^\d{4}-\d{2}$/.test(period),
+  });
+}
+
+export function useConfirmPayroll(employeeId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: PayrollPeriodInput) => api.computePayroll(employeeId, input),
+    mutationFn: (input: PayrollConfirmInput) => api.confirmPayroll(employeeId, input),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'employees', employeeId, 'payroll'] });
-      queryClient.invalidateQueries({
-        queryKey: ['admin', 'employees', employeeId, 'commission-advances'],
-      });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'employees', employeeId] });
+      // La liquidación genera un gasto del mes: cambia el costeo.
+      queryClient.invalidateQueries({ queryKey: ['admin', 'expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'events'] });
     },
   });
 }
@@ -115,9 +129,14 @@ export function useRecordCommissionAdvance(employeeId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CommissionAdvanceInput) => api.recordCommissionAdvance(employeeId, input),
-    onSuccess: () =>
+    onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ['admin', 'employees', employeeId, 'commission-advances'],
-      }),
+      });
+      // Cambia lo que sugiere el borrador de liquidación.
+      queryClient.invalidateQueries({
+        queryKey: ['admin', 'employees', employeeId, 'payroll-preview'],
+      });
+    },
   });
 }

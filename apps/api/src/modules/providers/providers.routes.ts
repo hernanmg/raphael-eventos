@@ -7,6 +7,7 @@ import { parseBody } from '../../lib/validate';
 import {
   InvalidLogoError,
   LOGO_MAX_BYTES,
+  InvalidProviderCategoryError,
   ProviderNotFoundError,
   SponsorNotFoundError,
   createProvider,
@@ -31,6 +32,10 @@ const upload = multer({
 });
 
 function handleError(err: unknown, res: Response): boolean {
+  if (err instanceof InvalidProviderCategoryError) {
+    res.status(400).json({ error: { message: 'Elegí un rubro válido' } });
+    return true;
+  }
   if (err instanceof ProviderNotFoundError) {
     res.status(404).json({ error: { message: 'Proveedor no encontrado' } });
     return true;

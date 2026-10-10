@@ -1,40 +1,35 @@
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import {
-  EventServiceCostInputSchema,
-  EventSupplyLineInputSchema,
-  type EventServiceCostInput,
-  type EventSupplyLineInput,
-} from '@raphael-eventos/shared';
-import {
-  useCreateServiceCost,
-  useCreateSupplyLine,
-  useDeleteServiceCost,
-  useDeleteSupplyLine,
-  useEventCosting,
-  useFixedCostCategories,
-  useServiceCostCategories,
-  useSupplyCategories,
-} from '../../../hooks/useCosting';
+import { Link } from 'react-router-dom';
+import { useEventCosting } from '../../../hooks/useCosting';
 import { formatCurrency } from '../../../lib/format';
+import { ExpenseForm } from './ExpenseForm';
+import { ExpenseRow } from './ExpenseRow';
 
-const SUPPLY_UNIT_LABELS = { KG: 'kg', LITROS: 'L', UNIDAD: 'un.' } as const;
-
-/** Embebido en AdminEventDetailPage — solo se renderiza si tenant.plan === 'PRO'. */
+/**
+ * Costeo del evento (Plan Pro), embebido en AdminEventDetailPage. Sale de los
+ * gastos reales cargados — agrupados por rubro → proveedor → ítems, como la
+ * hoja PRECIOS. de Fede — más el prorrateo de los gastos del salón del mes y
+ * los impuestos bancarios.
+ */
 export function EventCostingSection({ eventId }: { eventId: string }) {
   const [guestCountInput, setGuestCountInput] = useState<number | undefined>(undefined);
+  const [creating, setCreating] = useState(false);
+  const [showFixed, setShowFixed] = useState(false);
   const { data, isLoading } = useEventCosting(eventId, guestCountInput);
 
   if (isLoading) return <p className="mt-8 text-sm text-muted">Cargando costeo…</p>;
   if (!data) return null;
-
   const { costing } = data;
 
   return (
     <div className="mt-10 rounded-2xl border border-line bg-paper p-5">
-      <h2 className="font-serif text-xl font-semibold">Costeo (Plan Pro)</h2>
-      <div className="mt-1 flex items-center gap-2 text-xs text-muted">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="font-serif text-xl font-semibold">Costeo (Plan Pro)</h2>
+        <Link to="/admin/costeo/config" className="text-xs text-muted underline">
+          Rubros y porcentajes
+        </Link>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
         <label className="flex items-center gap-1.5">
           Invitados para el cálculo:
           <input
@@ -46,19 +41,17 @@ export function EventCostingSection({ eventId }: { eventId: string }) {
           />
         </label>
         <span>
-          · {costing.eventsInMonth} evento(s) en el mes · sale de la suma de las tarjetas cargadas,
-          se puede pisar acá
+          · {costing.eventsInMonth} evento(s) en el mes · sale de la suma de las tarjetas, se puede
+          pisar acá
         </span>
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <CostStat label="Insumos" value={costing.totalSupplyCost} />
-        <CostStat label="Servicios" value={costing.totalServiceCost} />
-        <CostStat label="Fijos prorrateados" value={costing.totalFixedCostProrated} />
+        <CostStat label="Gastos del evento" value={costing.totalExpenses} />
+        <CostStat label="Gastos del salón (prorrateo)" value={costing.totalFixedCostProrated} />
+        <CostStat label="Impuestos bancarios" value={costing.bankTaxes.total} />
         <div className="rounded-xl bg-cream-2 p-3">
-          <p className="text-xs uppercase tracking-wide text-muted">
-            Costo neto acumulado hasta el momento
-          </p>
+          <p className="text-xs uppercase tracking-wide text-muted">Costo neto</p>
           <p className="mt-1 text-lg font-semibold text-ink">{formatCurrency(costing.costoNeto)}</p>
         </div>
       </div>
@@ -66,13 +59,15 @@ export function EventCostingSection({ eventId }: { eventId: string }) {
       {costing.guestCount === 0 ? (
         <p className="mt-3 text-xs text-amber-700">
           Sin invitados cargados todavía — cargá tarjetas o poné una cantidad arriba para ver el
-          costo por 100 invitados y el costo tarjeta final.
+          costo por 100 invitados y el costo tarjeta.
         </p>
       ) : (
         <div className="mt-3 grid grid-cols-2 gap-3">
           <CostStat label="Costo x 100 invitados" value={costing.costoPor100Invitados} />
           <div className="rounded-xl bg-emerald-50 p-3">
-            <p className="text-xs uppercase tracking-wide text-emerald-800">Costo tarjeta</p>
+            <p className="text-xs uppercase tracking-wide text-emerald-800">
+              Costo tarjeta (× {(1 + costing.markupPct).toFixed(2)})
+            </p>
             <p className="mt-1 text-lg font-semibold text-emerald-900">
               {formatCurrency(costing.costoTarjeta)}
             </p>
@@ -80,242 +75,123 @@ export function EventCostingSection({ eventId }: { eventId: string }) {
         </div>
       )}
 
-      <SupplyLinesTable eventId={eventId} lines={costing.supplyLines} />
-      <ServiceCostsTable eventId={eventId} costs={costing.serviceCosts} />
+      <div className="mt-6 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-ink">Gastos del evento por rubro</h3>
+        {!creating && (
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="rounded-full bg-ink px-4 py-2 text-xs font-semibold text-white hover:bg-black"
+          >
+            + Cargar gasto
+          </button>
+        )}
+      </div>
+      {creating && (
+        <div className="mt-3">
+          <ExpenseForm
+            eventId={eventId}
+            onDone={() => setCreating(false)}
+            onCancel={() => setCreating(false)}
+          />
+        </div>
+      )}
+      {costing.groups.length === 0 ? (
+        <p className="mt-2 text-sm text-muted">Todavía no hay gastos cargados para este evento.</p>
+      ) : (
+        <div className="mt-3 flex flex-col gap-3">
+          {costing.groups.map((group) => (
+            <div
+              key={group.categoryId ?? group.categoryName}
+              className="rounded-xl border border-line p-3"
+            >
+              <div className="flex items-baseline justify-between">
+                <p className="font-semibold">{group.categoryName}</p>
+                <p className="font-semibold">{formatCurrency(group.total)}</p>
+              </div>
+              {group.providers.map((provider) => (
+                <div key={provider.providerId ?? 'none'} className="mt-2 pl-3">
+                  {(group.providers.length > 1 || provider.providerName) && (
+                    <div className="flex items-baseline justify-between text-xs text-muted">
+                      <span>{provider.providerName ?? 'Sin proveedor'}</span>
+                      <span>Subtotal {formatCurrency(provider.total)}</span>
+                    </div>
+                  )}
+                  <ul className="divide-y divide-line">
+                    {provider.expenses.map((expense) => (
+                      <ExpenseRow
+                        key={expense.id}
+                        expense={expense}
+                        showCategory={false}
+                        showProvider={false}
+                      />
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-6">
+        <button
+          type="button"
+          onClick={() => setShowFixed((v) => !v)}
+          className="text-sm font-semibold text-ink"
+        >
+          {showFixed ? '▾' : '▸'} Gastos del salón prorrateados e impuestos (
+          {formatCurrency(costing.totalFixedCostProrated + costing.bankTaxes.total)})
+        </button>
+        {showFixed && (
+          <table className="mt-2 w-full text-left text-xs">
+            <tbody>
+              {costing.fixedCostBreakdown.map((f) => (
+                <tr key={f.categoryId ?? f.categoryName} className="border-t border-line">
+                  <td className="py-1 pr-2">
+                    {f.categoryName}
+                    {f.guestScaled && <span className="ml-1 text-muted">(cada 100 inv.)</span>}
+                  </td>
+                  <td className="py-1 pr-2">
+                    <span
+                      className={`rounded px-1.5 py-0.5 ${
+                        f.source === 'REAL'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {f.source === 'REAL' ? 'real' : 'estimado'}
+                    </span>
+                  </td>
+                  <td className="py-1 pr-2 text-muted">{formatCurrency(f.monthlyBase)}/mes</td>
+                  <td className="py-1 text-right font-medium">
+                    {formatCurrency(f.proratedAmount)}
+                  </td>
+                </tr>
+              ))}
+              <tr className="border-t border-line">
+                <td className="py-1 pr-2" colSpan={3}>
+                  Impuestos bancarios (créditos/débitos{' '}
+                  {formatCurrency(costing.bankTaxes.creditDebit)} + transferencia{' '}
+                  {formatCurrency(costing.bankTaxes.transferFee)})
+                </td>
+                <td className="py-1 text-right font-medium">
+                  {formatCurrency(costing.bankTaxes.total)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
 
-function CostStat({
-  label,
-  value,
-  emphasis,
-}: {
-  label: string;
-  value: number;
-  emphasis?: boolean;
-}) {
+function CostStat({ label, value }: { label: string; value: number }) {
   return (
     <div>
       <p className="text-xs uppercase tracking-wide text-muted">{label}</p>
-      <p className={`mt-1 text-sm font-semibold ${emphasis ? 'text-ink' : 'text-ink/80'}`}>
-        {formatCurrency(value)}
-      </p>
-    </div>
-  );
-}
-
-function SupplyLinesTable({
-  eventId,
-  lines,
-}: {
-  eventId: string;
-  lines: {
-    id: string;
-    categoryName: string;
-    productName: string;
-    quantity: number;
-    unit: 'KG' | 'LITROS' | 'UNIDAD';
-    unitCost: number;
-    lineCost: number;
-    renegotiationWarning: boolean;
-  }[];
-}) {
-  const { data: categories } = useSupplyCategories();
-  const create = useCreateSupplyLine(eventId);
-  const remove = useDeleteSupplyLine(eventId);
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { isSubmitting },
-  } = useForm<EventSupplyLineInput>({
-    resolver: zodResolver(EventSupplyLineInputSchema),
-    defaultValues: { unit: 'UNIDAD' },
-  });
-
-  const onSubmit = handleSubmit((values) =>
-    create.mutate(values, { onSuccess: () => reset({ unit: 'UNIDAD' }) }),
-  );
-
-  return (
-    <div className="mt-6">
-      <h3 className="text-sm font-semibold text-ink">Insumos</h3>
-      {lines.length > 0 && (
-        <table className="mt-2 w-full text-left text-sm">
-          <tbody>
-            {lines.map((line) => (
-              <tr key={line.id} className="border-t border-line">
-                <td className="py-1.5 pr-2 text-muted">{line.categoryName}</td>
-                <td className="py-1.5 pr-2">
-                  {line.productName}
-                  {line.renegotiationWarning && (
-                    <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800">
-                      subió más del umbral
-                    </span>
-                  )}
-                </td>
-                <td className="py-1.5 pr-2 text-muted">
-                  {line.quantity} {SUPPLY_UNIT_LABELS[line.unit]} × {formatCurrency(line.unitCost)}
-                </td>
-                <td className="py-1.5 pr-2 font-medium">{formatCurrency(line.lineCost)}</td>
-                <td className="py-1.5 text-right">
-                  <button
-                    type="button"
-                    onClick={() => remove.mutate(line.id)}
-                    className="text-xs text-muted hover:text-red-600"
-                  >
-                    Quitar
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      <form onSubmit={onSubmit} className="mt-3 flex flex-wrap items-end gap-2">
-        <select
-          className="rounded-lg border border-line px-2 py-2 text-sm outline-none focus:border-ink"
-          {...register('categoryId')}
-        >
-          <option value="">Rubro…</option>
-          {categories?.categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <input
-          placeholder="Producto"
-          className="w-40 rounded-lg border border-line px-2 py-2 text-sm outline-none focus:border-ink"
-          {...register('productName')}
-        />
-        <input
-          type="number"
-          step="0.01"
-          placeholder="Cant."
-          className="w-20 rounded-lg border border-line px-2 py-2 text-sm outline-none focus:border-ink"
-          {...register('quantity', { valueAsNumber: true })}
-        />
-        <select
-          className="rounded-lg border border-line px-2 py-2 text-sm outline-none focus:border-ink"
-          {...register('unit')}
-        >
-          {Object.entries(SUPPLY_UNIT_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <input
-          type="number"
-          step="0.01"
-          placeholder="Costo unit."
-          className="w-28 rounded-lg border border-line px-2 py-2 text-sm outline-none focus:border-ink"
-          {...register('unitCost', { valueAsNumber: true })}
-        />
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-black disabled:opacity-60"
-        >
-          Agregar
-        </button>
-      </form>
-    </div>
-  );
-}
-
-function ServiceCostsTable({
-  eventId,
-  costs,
-}: {
-  eventId: string;
-  costs: {
-    id: string;
-    categoryName: string | null;
-    employeeName: string | null;
-    autoGenerated: boolean;
-    amount: number;
-    note: string | null;
-  }[];
-}) {
-  const { data: categories } = useServiceCostCategories();
-  useFixedCostCategories(); // precarga para que el resto de la pantalla no espere otro round-trip
-  const create = useCreateServiceCost(eventId);
-  const remove = useDeleteServiceCost(eventId);
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { isSubmitting },
-  } = useForm<EventServiceCostInput>({ resolver: zodResolver(EventServiceCostInputSchema) });
-
-  const onSubmit = handleSubmit((values) => create.mutate(values, { onSuccess: () => reset() }));
-
-  return (
-    <div className="mt-6">
-      <h3 className="text-sm font-semibold text-ink">Gastos de servicio</h3>
-      {costs.length > 0 && (
-        <table className="mt-2 w-full text-left text-sm">
-          <tbody>
-            {costs.map((cost) => (
-              <tr key={cost.id} className="border-t border-line">
-                <td className="py-1.5 pr-2">
-                  {cost.categoryName ?? cost.employeeName ?? cost.note ?? '—'}
-                  {cost.autoGenerated && (
-                    <span className="ml-2 rounded bg-cream-2 px-1.5 py-0.5 text-xs">
-                      auto (personal)
-                    </span>
-                  )}
-                </td>
-                <td className="py-1.5 pr-2 font-medium">{formatCurrency(cost.amount)}</td>
-                <td className="py-1.5 text-right">
-                  <button
-                    type="button"
-                    onClick={() => remove.mutate(cost.id)}
-                    className="text-xs text-muted hover:text-red-600"
-                  >
-                    Quitar
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      <form onSubmit={onSubmit} className="mt-3 flex flex-wrap items-end gap-2">
-        <select
-          className="rounded-lg border border-line px-2 py-2 text-sm outline-none focus:border-ink"
-          {...register('categoryId')}
-        >
-          <option value="">Rubro…</option>
-          {categories?.categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <input
-          type="number"
-          step="0.01"
-          placeholder="Monto"
-          className="w-28 rounded-lg border border-line px-2 py-2 text-sm outline-none focus:border-ink"
-          {...register('amount', { valueAsNumber: true })}
-        />
-        <input
-          placeholder="Nota (opcional)"
-          className="w-40 rounded-lg border border-line px-2 py-2 text-sm outline-none focus:border-ink"
-          {...register('note')}
-        />
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-black disabled:opacity-60"
-        >
-          Agregar
-        </button>
-      </form>
+      <p className="mt-1 text-sm font-semibold text-ink/80">{formatCurrency(value)}</p>
     </div>
   );
 }

@@ -69,6 +69,13 @@ export default function AdminEventDetailPage() {
                 {data.event.titularPhone}
               </p>
             )}
+            {data.event.soldByEmployeeName && (
+              <p>
+                <span className="text-muted">Vendido por: </span>
+                {data.event.soldByEmployeeName}
+                {data.event.soldAt && ` (${formatDate(data.event.soldAt)})`}
+              </p>
+            )}
             {data.event.minGuests !== null && (
               <p>
                 <span className="text-muted">Mínimo de invitados: </span>

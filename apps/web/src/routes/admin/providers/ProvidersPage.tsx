@@ -17,13 +17,15 @@ import {
   useSaveProvider,
   useSaveSponsor,
 } from '../../../hooks/usePhase4';
-import { EVENT_TYPE_LABELS } from '../../../lib/format';
+import { useCostCategories } from '../../../hooks/useCosting';
+import { COST_KIND_LABELS, EVENT_TYPE_LABELS } from '../../../lib/format';
 import { errorText } from '../../../lib/guestLinks';
 import { apiUrl } from '../../../lib/api';
 
 const EMPTY_PROVIDER: ProviderInput = {
   name: '',
-  category: '',
+  costCategoryId: '',
+  showInDirectory: true,
   description: '',
   contactName: '',
   phone: '',
@@ -40,7 +42,8 @@ const EMPTY_PROVIDER: ProviderInput = {
 function toForm(p: AdminProvider): ProviderInput {
   return {
     name: p.name,
-    category: p.category,
+    costCategoryId: p.costCategoryId ?? '',
+    showInDirectory: p.showInDirectory,
     description: p.description ?? '',
     contactName: p.contactName ?? '',
     phone: p.phone ?? '',
@@ -92,7 +95,10 @@ function ProvidersSection() {
     defaultValues: EMPTY_PROVIDER,
   });
 
-  const categories = [...new Set((data?.providers ?? []).map((p) => p.category))];
+  // Rubro = los mismos rubros del costeo (feedback 2026-10), así cada gasto
+  // de un proveedor queda vinculado a su rubro.
+  const { data: categoriesData } = useCostCategories();
+  const categories = categoriesData?.categories ?? [];
   const field = 'rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-ink';
 
   const startEdit = (provider: AdminProvider) => {
@@ -122,6 +128,16 @@ function ProvidersSection() {
                 <p className="font-medium text-ink">
                   {p.name}
                   <span className="ml-2 text-xs text-muted">{p.category}</span>
+                  {!p.costCategoryId && (
+                    <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                      Elegí su rubro de costeo
+                    </span>
+                  )}
+                  {!p.showInDirectory && (
+                    <span className="ml-2 rounded-full bg-cream-2 px-2 py-0.5 text-[10px] font-semibold">
+                      Solo compras
+                    </span>
+                  )}
                   {!p.active && (
                     <span className="ml-2 rounded-full bg-cream-2 px-2 py-0.5 text-[10px] font-semibold">
                       Oculto
@@ -179,19 +195,31 @@ function ProvidersSection() {
             {errors.name && <span className="text-red-600">{errors.name.message}</span>}
           </label>
           <label className="flex flex-col gap-1 text-xs">
-            <span className="font-medium text-ink">Rubro</span>
-            <input
-              list="provider-categories"
-              placeholder="Fotógrafo, decoración, sonido…"
-              className={field}
-              {...register('category')}
-            />
-            <datalist id="provider-categories">
-              {categories.map((c) => (
-                <option key={c} value={c} />
+            <span className="font-medium text-ink">Rubro (el mismo del costeo)</span>
+            <select className={field} {...register('costCategoryId')}>
+              <option value="">Elegí el rubro…</option>
+              {(['SERVICIO', 'INSUMO', 'FIJO'] as const).map((kind) => (
+                <optgroup key={kind} label={COST_KIND_LABELS[kind]}>
+                  {categories
+                    .filter((c) => c.kind === kind)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                </optgroup>
               ))}
-            </datalist>
-            {errors.category && <span className="text-red-600">{errors.category.message}</span>}
+            </select>
+            {errors.costCategoryId && (
+              <span className="text-red-600">{errors.costCategoryId.message}</span>
+            )}
+            <span className="text-muted">
+              ¿Falta un rubro? Agregalo en{' '}
+              <Link to="/admin/costeo/config" className="underline">
+                Configuración de costeo
+              </Link>
+              .
+            </span>
           </label>
           <label className="flex flex-col gap-1 text-xs sm:col-span-2">
             <span className="font-medium text-ink">Descripción (opcional)</span>
@@ -228,8 +256,20 @@ function ProvidersSection() {
             <input type="number" min={0} className={field} {...register('sortOrder')} />
           </label>
         </div>
+        <label className="flex items-center gap-2 text-xs">
+          <input type="checkbox" {...register('showInDirectory')} />
+          <span>
+            <span className="font-medium text-ink">Mostrar en el directorio público</span>{' '}
+            <span className="text-muted">
+              (landing y portal). Desmarcalo para proveedores de compras (Macro, Kristal…) que solo
+              se usan en los gastos.
+            </span>
+          </span>
+        </label>
         <fieldset className="flex flex-col gap-1 text-xs">
-          <legend className="mb-1 font-medium text-ink">Tipos de evento</legend>
+          <legend className="mb-1 font-medium text-ink">
+            Tipos de evento (para el directorio público)
+          </legend>
           <div className="flex flex-wrap gap-4">
             {(Object.keys(EVENT_TYPE_LABELS) as EventType[]).map((type) => (
               <label key={type} className="flex items-center gap-1.5">
