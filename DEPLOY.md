@@ -8,7 +8,7 @@ credenciales van en los dashboards de cada servicio.
 ## Cómo encaja (sin dominio propio)
 
 ```
-navegador ──https──▶ <web>.vercel.app ─┬─ /api/*  ──rewrite──▶ raphael-eventos-api.onrender.com
+navegador ──https──▶ <web>.vercel.app ─┬─ /api/*  ──rewrite──▶ raphael-eventos.onrender.com
                                        └─ resto   ──▶ index.html (SPA)
 ```
 

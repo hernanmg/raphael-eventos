@@ -1440,7 +1440,7 @@ nueva (migraciones → bootstrap → backfill → API en modo producción):
 **Stack final del piloto (2026-10-09): Vercel (web) + Render free (API) +
 Supabase (DB + Storage)** — `render.yaml` (blueprint) y `DEPLOY.md`.
 - **Sin dominio propio:** `apps/web/vercel.json` reenvía `/api/*` a
-  `raphael-eventos-api.onrender.com` → web y API en el mismo origen, la cookie
+  `raphael-eventos.onrender.com` → web y API en el mismo origen, la cookie
   `SameSite=Lax` queda en el dominio de Vercel. La web usa
   `VITE_API_URL=same-origin` (rutas relativas, `lib/api.ts`). El service
   worker de la PWA excluye `/api/` de su fallback de navegación (si no,
