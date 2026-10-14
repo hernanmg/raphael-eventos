@@ -410,9 +410,14 @@ redirige a `/login` si `useSession()` no devuelve usuario.
 página que crece con el proyecto — buscador de funcionalidades + intro de la
 solución. La lista ES la fuente de verdad: **cada vez que se termina una
 funcionalidad de cara al usuario, agregarla a
-`apps/web/src/help/features.ts`** (título, propósito en una oración, `path`
-de la ruta) en el mismo cambio que la implementa, no después. No agregar
-entradas de funcionalidades a medio hacer.
+`apps/web/src/help/features.ts`** en el mismo cambio que la implementa, no
+después. No agregar entradas de funcionalidades a medio hacer. Desde
+2026-10-13 (pedido del usuario: "te dice algo pero no te enseña a usarlo")
+cada entrada lleva `group` (sección de la página), `purpose` (resumen
+corto), `details` (cómo funciona, en criollo), `steps` (paso a paso con los
+nombres reales de los botones) y `example` (un caso concreto con números
+que cierren). El buscador mira solo título/propósito/keywords.
+`/ayuda#<id>` abre esa entrada desplegada (lo usa `IpcStatusPage`).
 
 **Tests de `apps/api`: corren contra el MISMO Postgres y el MISMO tenant que
 el seed — limpieza centralizada en `src/test/dbCleanup.ts`.** Historia: cada

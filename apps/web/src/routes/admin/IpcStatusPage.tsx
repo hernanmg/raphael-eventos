@@ -41,7 +41,10 @@ export default function IpcStatusPage() {
         El valor se actualiza solo todos los meses contra datos.gob.ar. Si por algún motivo no se
         pudo traer el dato actualizado, cargalo acá a mano con el % de variación del mes anterior y
         el último publicado — el índice se encadena sobre el último cargado, nunca se recalcula
-        hacia atrás.
+        hacia atrás.{' '}
+        <Link to="/ayuda#admin-ipc" className="underline hover:text-ink">
+          ¿Qué es el índice y cómo actualiza las tarjetas?
+        </Link>
       </p>
 
       {data?.staleness.stale && (
