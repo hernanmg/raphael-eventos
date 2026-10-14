@@ -33,19 +33,27 @@ export interface IpcSeriesPoint {
  * (src/scripts/backfillIpc.ts) — mismo dato y misma conversión que
  * fetchLatestIpcPeriod. Tira error si la API falla: un script manual tiene
  * que fallar en voz alta, no en silencio como el cron.
+ *
+ * Pide la serie ENTERA y filtra acá: con `start_date` la API devuelve
+ * `data: []` para algunas fechas válidas (comprobado 2026-10-13: 2024-12-01 y
+ * 2024-01-01 vacías, 2024-11-01 y 2025-01-01 con datos), y el backfill
+ * terminaba en "la API no devolvió meses en el rango".
  */
 export async function fetchIpcSeries(startDate: string): Promise<IpcSeriesPoint[]> {
-  const url = `https://apis.datos.gob.ar/series/api/series/?ids=${SERIES_ID}&start_date=${startDate}&limit=1000&sort=asc`;
+  const url = `https://apis.datos.gob.ar/series/api/series/?ids=${SERIES_ID}&limit=1000&sort=asc`;
+  const start = new Date(`${startDate}T00:00:00.000Z`).getTime();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) throw new Error(`datos.gob.ar respondió ${res.status}`);
     const body = (await res.json()) as DatosGobArResponse;
-    return (body.data ?? []).map(([date, fraction]) => ({
-      period: new Date(`${date}T00:00:00.000Z`),
-      valuePct: fraction * 100,
-    }));
+    return (body.data ?? [])
+      .map(([date, fraction]) => ({
+        period: new Date(`${date}T00:00:00.000Z`),
+        valuePct: fraction * 100,
+      }))
+      .filter((point) => point.period.getTime() >= start);
   } finally {
     clearTimeout(timeout);
   }
@@ -168,12 +176,22 @@ function firstOfMonthUTC(date: Date, monthOffset = 0): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + monthOffset, 1));
 }
 
+// Hora del salón (Argentina, sin horario de verano) — mismo valor que
+// guests.service.ts y apps/web/src/lib/eventTime.ts.
+const SALON_UTC_OFFSET_HOURS = -3;
+// El INDEC publica alrededor del 14 a la tarde y el cron corre a las 08:00:
+// lo levanta el 15 a la mañana. El aviso arranca el 16 (hora del salón).
+const STALE_FROM_DAY = 16;
+
 /**
  * Decisión de negocio (ver CLAUDE.md "Fase 2 — IPC automático"): la serie se
- * actualiza en datos.gob.ar todos los 14 del mes siguiente. Pasado el día 14
- * sin que el período esperado esté guardado, el panel admin (nunca el
- * portal cliente) tiene que avisar en vez de dejar que Cami/Fede asuman que
- * el último valor guardado sigue vigente.
+ * actualiza en datos.gob.ar alrededor del 14 del mes siguiente. Pasado el
+ * margen (STALE_FROM_DAY) sin que el período esperado esté guardado, el panel
+ * admin (nunca el portal cliente) tiene que avisar en vez de dejar que
+ * Cami/Fede asuman que el último valor guardado sigue vigente.
+ *
+ * Bug real (2026-10-13 22:30 en Córdoba = 14/10 01:30 UTC): contando el día en
+ * UTC y desde el 14, el aviso salía la noche anterior a la publicación.
  */
 export async function getIpcStaleness(tenantId: string): Promise<IpcStalenessStatus> {
   return withTenant(tenantId, async (tx) => {
@@ -182,8 +200,9 @@ export async function getIpcStaleness(tenantId: string): Promise<IpcStalenessSta
       orderBy: { period: 'desc' },
     });
 
-    const now = new Date();
-    const monthsBack = now.getUTCDate() >= 14 ? 1 : 2;
+    // "Ahora" corrido a la hora del salón, leído con los getters UTC.
+    const now = new Date(Date.now() + SALON_UTC_OFFSET_HOURS * 3_600_000);
+    const monthsBack = now.getUTCDate() >= STALE_FROM_DAY ? 1 : 2;
     const expectedPeriod = firstOfMonthUTC(now, -monthsBack);
 
     const stale = !lastRow || lastRow.period.getTime() < expectedPeriod.getTime();

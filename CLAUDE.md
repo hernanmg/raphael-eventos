@@ -917,8 +917,10 @@ solo el cron, `apps/api/src/jobs/ipcCron.ts`, diario a las 08:00). Si hay un
 período más nuevo que el guardado, lo encadena y lo escribe
 (`triggeredById: null` = automático). Si la API falla, no hace nada — las
 pantallas siguen leyendo el último valor guardado, como siempre.
-`getIpcStaleness()`: pasado el día 14 del mes (la serie se publica ese día)
-sin que el período esperado esté guardado, devuelve un aviso — **decisión
+`getIpcStaleness()`: desde el día 16 del mes **en hora del salón** (la serie
+se publica ~14 a la tarde y el cron de las 08:00 la levanta el 15; antes se
+contaba desde el 14 en UTC y el aviso salía la noche del 13) sin que el
+período esperado esté guardado, devuelve un aviso — **decisión
 cerrada: el aviso aparece solo en `/admin/ipc` y como banner en
 `/admin` (dashboard), nunca en el portal cliente**, que sigue mostrando el
 último valor guardado sin interrumpir la pantalla. `GET /admin/ipc` ahora
@@ -1368,7 +1370,9 @@ del tenant y la guarda en `IpcIndexValue` + `AuditLog` (actor "Sistema
 desde la fila existente más vieja (hacia atrás `idx(m-1) = idx(m)/(1+v(m))`,
 re-anclando en cada fila existente); no agrega períodos posteriores al
 último guardado (eso es del cron); rellena huecos solo si ninguna tarjeta
-tiene `basePeriod` en el tramo. Idempotente. Corrido el 2026-10-08 en dev:
+tiene `basePeriod` en el tramo. Idempotente. `fetchIpcSeries` pide la serie
+entera y filtra local: con `start_date` la API devuelve `data: []` para
+algunas fechas válidas (2024-12-01, comprobado 2026-10-13). Corrido el 2026-10-08 en dev:
 19 períodos (2025-01 → 2026-05, más el hueco 2026-07/08), saldos de todos
 los eventos verificados idénticos antes/después.
 
