@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { AUDIT_AREAS } from '@raphael-eventos/shared';
 import { useAuditLog } from '../../../hooks/usePhase4';
 import { AuditEntryList } from '../../../components/AuditEntryList';
+import { AdminPageNav } from '../../../components/admin/AdminPageNav';
 
 /**
  * Registro de auditoría (Fase 4): quién hizo qué cambio y cuándo, sobre lo
@@ -33,10 +33,8 @@ export default function AuditLogPage() {
   const field = 'rounded-lg border border-line px-3 py-2 text-sm outline-none focus:border-ink';
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-16">
-      <Link to="/admin" className="text-sm text-muted hover:text-ink">
-        ← Panel admin
-      </Link>
+    <main className="mx-auto max-w-4xl px-4 pb-16 pt-6 sm:px-6 md:pt-10">
+      <AdminPageNav />
       <h1 className="mt-4 font-serif text-3xl font-semibold">Auditoría</h1>
       <p className="mt-2 text-sm text-muted">
         Quién cambió qué y cuándo: tarjetas, pagos (incluidas las bajas), IPC, costeo, personal,

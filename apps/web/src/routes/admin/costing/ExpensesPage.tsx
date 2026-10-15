@@ -4,6 +4,7 @@ import { useExpenses } from '../../../hooks/useCosting';
 import { COST_KIND_LABELS, formatCurrency } from '../../../lib/format';
 import { ExpenseForm } from './ExpenseForm';
 import { ExpenseRow } from './ExpenseRow';
+import { AdminPageNav } from '../../../components/admin/AdminPageNav';
 
 function shiftMonth(month: string, delta: number): string {
   const [y, m] = month.split('-').map(Number);
@@ -42,10 +43,8 @@ export default function ExpensesPage() {
   const { data, isLoading, isError } = useExpenses({ month });
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-16">
-      <Link to="/admin" className="text-sm text-muted hover:text-ink">
-        ← Panel admin
-      </Link>
+    <main className="mx-auto max-w-4xl px-4 pb-16 pt-6 sm:px-6 md:pt-10">
+      <AdminPageNav />
       <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-serif text-3xl font-semibold">Gastos</h1>

@@ -6,16 +6,15 @@ import { api } from '../../../lib/api';
 import { errorText } from '../../../lib/guestLinks';
 import { useClientDetail } from '../../../hooks/useAdmin';
 import { ACCOUNT_ROLE_LABELS, EVENT_TYPE_LABELS, formatCurrency } from '../../../lib/format';
+import { AdminPageNav } from '../../../components/admin/AdminPageNav';
 
 export default function ClientDetailPage() {
   const { userId } = useParams<{ userId: string }>();
   const { data, isLoading, isError } = useClientDetail(userId);
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
-      <Link to="/admin/clientes" className="text-sm text-muted hover:text-ink">
-        ← Clientes
-      </Link>
+    <main className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6 md:pt-10">
+      <AdminPageNav />
 
       {isLoading && <p className="mt-6 text-sm text-muted">Cargando…</p>}
       {isError && <p className="mt-6 text-sm text-red-600">No encontramos ese cliente.</p>}

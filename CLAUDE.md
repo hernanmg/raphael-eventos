@@ -1580,3 +1580,43 @@ $1.373.030,38 → ×1,76; gasto con 2 ítems + ticket; Luz real reemplazando al
 estimado en el prorrateo; edición de Pao; comisión al marcarla vendedora;
 liquidación con 7,5 h × $5.000 + 1 comisión = $137.500 y su gasto del mes
 de $37.500). Datos de prueba borrados.
+
+## Rediseño del panel admin (2026-10-15, rama `feature-nuevo_disenio`)
+
+Pedido del usuario: el panel se veía como 13 botones-píldora iguales uno al
+lado del otro. Se propusieron 3 direcciones (maquetas:
+https://claude.ai/artifact/GiEDfXkKSrG2CvZ9BVcFE4) y **eligió mezclar**:
+desktop = "Hub de módulos", mobile = "Bento ejecutivo" con barra inferior.
+Solo presentación: **sin cambios de lógica, rutas, endpoints ni props**.
+
+- **Navegación = una sola fuente**: `components/admin/adminNav.ts`
+  (`ADMIN_NAV`: grupos Operación / Comercial / Finanzas / Equipo y red /
+  Sistema, con ruta, ícono, descripción y `proOnly`). La usan las cards del
+  dashboard, las migas de pan + pestañas y la hoja "Más". **Una pantalla
+  nueva del panel se agrega ahí**; si es una subpantalla (detalle), en
+  `DETAIL_ROUTES` del mismo archivo.
+- `AdminLayout` (ruta sin path dentro de `RequireAdmin` en `App.tsx`; el
+  reporte imprimible queda afuera a propósito): Suspense propio + en mobile
+  `AdminTabBar` (Inicio / Calendario / + Evento / Consultas con punto si hay
+  `NUEVO` / Más → hoja con el resto, Ayuda, Mi portal y Salir).
+- `AdminPageNav` reemplazó los 16 "← Panel admin"/"← Clientes"/"← Personal":
+  migas de pan siempre + pestañas del grupo en desktop. **Toda pantalla nueva
+  de `/admin/*` arranca con `<AdminPageNav />`** y el wrapper
+  `mx-auto max-w-… px-4 pb-16 pt-6 sm:px-6 md:pt-10`.
+- Desktop vs mobile se decide en JS (`hooks/useIsDesktop.ts`, mismo corte que
+  `md`), no solo con clases: son estructuras distintas y así no se montan las
+  dos ni se disparan queries de más. Sin `matchMedia` (jsdom) asume desktop.
+- El dashboard usa datos de endpoints existentes: `useYearReport(año)` (por
+  cobrar = comprometido − cobrado de los eventos del año, ocupación por mes)
+  y `useLeads('NUEVO')` — sin endpoint nuevo.
+- `SiteHeader`: dentro de `/admin` en mobile queda solo el logo (los links
+  están en "Más"). Fuera del panel no cambió (el header del portal cliente
+  sigue partiéndose en 2 líneas en mobile — fuera de alcance de este pedido).
+- Tokens nuevos en `index.css`: `gold-ink` (#7d6230, dorado para texto chico:
+  `gold` no llega a 4.5:1 sobre crema), `shadow-card`, `shadow-card-hover`.
+  Íconos SVG inline en `components/admin/AdminIcon.tsx` (sin librería).
+
+Verificado con Playwright (desktop 1440 y mobile 390): dashboard con cards y
+datos reales del seed, pestañas/migas en Gastos y Liquidación, hoja "Más"
+navegando a Gastos, detalle de evento sin scroll horizontal, sin errores de
+consola.

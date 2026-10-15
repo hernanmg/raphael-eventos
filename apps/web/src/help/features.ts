@@ -243,19 +243,24 @@ export const helpFeatures: HelpFeature[] = [
     group: 'eventos',
     title: 'Panel admin: dashboard',
     purpose:
-      'Total de eventos por tipo y los próximos eventos, de un vistazo, con accesos a cada sección.',
+      'Total de eventos por tipo y los próximos eventos, de un vistazo, con todas las secciones del panel agrupadas por área.',
     path: '/admin',
-    keywords: ['admin', 'dashboard', 'panel', 'eventos totales'],
+    keywords: ['admin', 'dashboard', 'panel', 'eventos totales', 'menú', 'secciones'],
     details: [
-      'Las tarjetas de arriba (15 años, egresados, bodas, empresariales, total) son filtros: al tocar una, la lista muestra todos los eventos de ese tipo, incluidos los pasados.',
+      'Las tarjetas de arriba (total, 15 años, egresados, bodas, empresariales) son filtros: al tocar una, la lista muestra todos los eventos de ese tipo, incluidos los pasados.',
+      'En la computadora, debajo de los eventos están todas las secciones como tarjetas, agrupadas en Operación, Comercial, Finanzas, Equipo y red y Sistema. Algunas muestran un dato al día, como las consultas nuevas o si el IPC está actualizado.',
+      'Dentro de cada sección, arriba aparece dónde estás (por ejemplo "Inicio › Finanzas › Gastos") y pestañas para saltar a las otras secciones del mismo grupo sin volver al inicio.',
+      'En el celular, el inicio muestra lo pendiente de cobrar de los eventos del año, las consultas nuevas, el estado del IPC y la ocupación por mes. Abajo hay una barra fija con Inicio, Calendario, el botón dorado para cargar un evento, Consultas y "Más", que abre el resto de las secciones, la Ayuda, tu portal y Salir.',
       'Si el IPC del mes no se pudo actualizar solo, aparece un aviso acá arriba.',
     ],
     steps: [
       'Entrá a "Panel admin".',
       'Tocá una tarjeta de tipo para filtrar, o un evento para abrir su detalle.',
+      'Para ir a otra sección, tocá su tarjeta (computadora) o usá la barra de abajo y "Más" (celular).',
     ],
     example: [
       'Fede toca "Egresados" y ve los 6 egresos del año, incluido el de marzo que ya pasó, para revisar cuál quedó con saldo.',
+      'Desde el celular, Cami ve el punto dorado en "Consultas", entra y responde las 2 consultas nuevas. Después toca "Más" → "Gastos" para cargar un ticket.',
     ],
   },
   {

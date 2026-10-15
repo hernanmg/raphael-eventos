@@ -11,6 +11,12 @@
   --color-muted: #6c6a63;
   --color-gold: #a3813f;
   --color-gold-soft: #e8dcc2;
+  /* Dorado oscuro para texto chico: el gold de arriba no llega a 4.5:1 sobre crema. */
+  --color-gold-ink: #7d6230;
+
+  /* Sombras de las cards del panel admin. */
+  --shadow-card: 0 1px 2px rgb(20 20 20 / 0.04), 0 4px 14px rgb(20 20 20 / 0.05);
+  --shadow-card-hover: 0 2px 4px rgb(20 20 20 / 0.06), 0 12px 28px rgb(20 20 20 / 0.08);
 
   --font-serif: 'Playfair Display', serif;
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;

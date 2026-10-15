@@ -1,6 +1,5 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Link } from 'react-router-dom';
 import { ReminderConfigInputSchema, type ReminderConfigInput } from '@raphael-eventos/shared';
 import {
   useReminderConfig,
@@ -9,6 +8,7 @@ import {
   useUpdateReminderConfig,
 } from '../../../hooks/useReminders';
 import { formatTimestamp } from '../../../lib/format';
+import { AdminPageNav } from '../../../components/admin/AdminPageNav';
 
 const STATUS_LABELS: Record<string, string> = {
   SENT: 'Enviado',
@@ -37,10 +37,8 @@ export default function RemindersPage() {
   });
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
-      <Link to="/admin" className="text-sm text-muted hover:text-ink">
-        ← Panel admin
-      </Link>
+    <main className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6 md:pt-10">
+      <AdminPageNav />
       <h1 className="mt-4 font-serif text-3xl font-semibold">Recordatorios automáticos</h1>
       <p className="mt-2 text-sm text-muted">
         Cadencia fija: recuerda por WhatsApp mientras haya saldo pendiente, y con más urgencia cerca

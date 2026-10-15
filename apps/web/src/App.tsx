@@ -49,6 +49,7 @@ function Lazy({ children }: { children: ReactNode }) {
   );
 }
 import { RequireAdmin } from './routes/admin/RequireAdmin';
+import { AdminLayout } from './components/admin/AdminLayout';
 
 export default function App() {
   return (
@@ -112,22 +113,25 @@ export default function App() {
           />
         </Route>
         <Route element={<RequireAdmin />}>
-          <Route path="/admin" element={<AdminDashboardPage />} />
-          <Route path="/admin/eventos/nuevo" element={<CreateEventPage />} />
-          <Route path="/admin/eventos/:eventId" element={<AdminEventDetailPage />} />
-          <Route path="/admin/ipc" element={<IpcStatusPage />} />
-          <Route path="/admin/costeo/config" element={<CostConfigPage />} />
-          <Route path="/admin/gastos" element={<ExpensesPage />} />
-          <Route path="/admin/personal" element={<EmployeesPage />} />
-          <Route path="/admin/personal/:employeeId/liquidacion" element={<PayrollPage />} />
-          <Route path="/admin/consultas" element={<LeadsPage />} />
-          <Route path="/admin/calendario" element={<AvailabilityCalendarPage />} />
-          <Route path="/admin/recordatorios" element={<RemindersPage />} />
-          <Route path="/admin/clientes" element={<ClientsPage />} />
-          <Route path="/admin/clientes/:userId" element={<ClientDetailPage />} />
-          <Route path="/admin/reportes" element={<ReportsPage />} />
-          <Route path="/admin/proveedores" element={<ProvidersPage />} />
-          <Route path="/admin/auditoria" element={<AuditLogPage />} />
+          {/* Barra inferior en mobile + Suspense propio (ver AdminLayout). */}
+          <Route element={<AdminLayout />}>
+            <Route path="/admin" element={<AdminDashboardPage />} />
+            <Route path="/admin/eventos/nuevo" element={<CreateEventPage />} />
+            <Route path="/admin/eventos/:eventId" element={<AdminEventDetailPage />} />
+            <Route path="/admin/ipc" element={<IpcStatusPage />} />
+            <Route path="/admin/costeo/config" element={<CostConfigPage />} />
+            <Route path="/admin/gastos" element={<ExpensesPage />} />
+            <Route path="/admin/personal" element={<EmployeesPage />} />
+            <Route path="/admin/personal/:employeeId/liquidacion" element={<PayrollPage />} />
+            <Route path="/admin/consultas" element={<LeadsPage />} />
+            <Route path="/admin/calendario" element={<AvailabilityCalendarPage />} />
+            <Route path="/admin/recordatorios" element={<RemindersPage />} />
+            <Route path="/admin/clientes" element={<ClientsPage />} />
+            <Route path="/admin/clientes/:userId" element={<ClientDetailPage />} />
+            <Route path="/admin/reportes" element={<ReportsPage />} />
+            <Route path="/admin/proveedores" element={<ProvidersPage />} />
+            <Route path="/admin/auditoria" element={<AuditLogPage />} />
+          </Route>
         </Route>
       </Route>
     </Routes>

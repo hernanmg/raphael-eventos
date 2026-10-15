@@ -6,6 +6,7 @@ import { useAddIpcEntry, useIpcHistory } from '../../hooks/useAdmin';
 import { ApiError } from '../../lib/api';
 import { FormField } from '../../components/FormField';
 import { formatDate, formatTimestamp } from '../../lib/format';
+import { AdminPageNav } from '../../components/admin/AdminPageNav';
 
 export default function IpcStatusPage() {
   const { data, isLoading, isError } = useIpcHistory();
@@ -32,10 +33,8 @@ export default function IpcStatusPage() {
   const latest = data?.history[0];
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-16">
-      <Link to="/admin" className="text-sm text-muted hover:text-ink">
-        ← Panel admin
-      </Link>
+    <main className="mx-auto max-w-2xl px-4 pb-16 pt-6 sm:px-6 md:pt-10">
+      <AdminPageNav />
       <h1 className="mt-4 font-serif text-3xl font-semibold">Estado del IPC</h1>
       <p className="mt-2 text-sm text-muted">
         El valor se actualiza solo todos los meses contra datos.gob.ar. Si por algún motivo no se

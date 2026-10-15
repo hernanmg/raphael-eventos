@@ -21,6 +21,7 @@ import { useCostCategories } from '../../../hooks/useCosting';
 import { COST_KIND_LABELS, EVENT_TYPE_LABELS } from '../../../lib/format';
 import { errorText } from '../../../lib/guestLinks';
 import { apiUrl } from '../../../lib/api';
+import { AdminPageNav } from '../../../components/admin/AdminPageNav';
 
 const EMPTY_PROVIDER: ProviderInput = {
   name: '',
@@ -65,10 +66,8 @@ function toForm(p: AdminProvider): ProviderInput {
  */
 export default function ProvidersPage() {
   return (
-    <main className="mx-auto max-w-4xl px-6 py-16">
-      <Link to="/admin" className="text-sm text-muted hover:text-ink">
-        ← Panel admin
-      </Link>
+    <main className="mx-auto max-w-4xl px-4 pb-16 pt-6 sm:px-6 md:pt-10">
+      <AdminPageNav />
       <h1 className="mt-4 font-serif text-3xl font-semibold">Proveedores y sponsors</h1>
       <p className="mt-2 text-sm text-muted">
         Los proveedores activos se muestran en la landing y en el portal de cada cliente, filtrados

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useClients } from '../../../hooks/useAdmin';
+import { AdminPageNav } from '../../../components/admin/AdminPageNav';
 
 export default function ClientsPage() {
   const { data, isLoading, isError } = useClients();
@@ -17,10 +18,8 @@ export default function ClientsPage() {
   }, [data, search]);
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
-      <Link to="/admin" className="text-sm text-muted hover:text-ink">
-        ← Panel admin
-      </Link>
+    <main className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6 md:pt-10">
+      <AdminPageNav />
       <h1 className="mt-4 font-serif text-3xl font-semibold">Clientes</h1>
       <p className="mt-2 text-sm text-muted">
         Un mismo cliente puede tener más de un evento — acá se ve todo junto en vez de ir evento por

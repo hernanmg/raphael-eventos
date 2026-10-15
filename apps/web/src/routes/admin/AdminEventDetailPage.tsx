@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useAdminEventDetail } from '../../hooks/useAdmin';
 import { useSession } from '../../hooks/useSession';
 import {
@@ -17,6 +17,7 @@ import { EventStaffSection } from './staff/EventStaffSection';
 import { AdminGuestsSection } from './guests/AdminGuestsSection';
 import { AdminContractSection } from './contracts/AdminContractSection';
 import { BeneficiaryPaymentsSection } from './payments/BeneficiaryPaymentsSection';
+import { AdminPageNav } from '../../components/admin/AdminPageNav';
 
 export default function AdminEventDetailPage() {
   const { eventId } = useParams<{ eventId: string }>();
@@ -25,10 +26,8 @@ export default function AdminEventDetailPage() {
   const [adjustingCardId, setAdjustingCardId] = useState<string | null>(null);
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
-      <Link to="/admin" className="text-sm text-muted hover:text-ink">
-        ← Panel admin
-      </Link>
+    <main className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6 md:pt-10">
+      <AdminPageNav />
 
       {isLoading && <p className="mt-6 text-sm text-muted">Cargando el evento…</p>}
       {isError && <p className="mt-6 text-sm text-red-600">No encontramos ese evento.</p>}

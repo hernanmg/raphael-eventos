@@ -18,6 +18,7 @@ import { useSession } from '../../../hooks/useSession';
 import { useCostCategories } from '../../../hooks/useCosting';
 import { ApiError } from '../../../lib/api';
 import { CONTRACT_TYPE_LABELS, VARIABLE_TYPE_LABELS, formatCurrency } from '../../../lib/format';
+import { AdminPageNav } from '../../../components/admin/AdminPageNav';
 
 export default function EmployeesPage() {
   const { data, isLoading, isError } = useEmployees();
@@ -26,10 +27,8 @@ export default function EmployeesPage() {
   const [formKey, setFormKey] = useState(0);
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
-      <Link to="/admin" className="text-sm text-muted hover:text-ink">
-        ← Panel admin
-      </Link>
+    <main className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6 md:pt-10">
+      <AdminPageNav />
       <h1 className="mt-4 font-serif text-3xl font-semibold">Personal</h1>
       <p className="mt-2 text-sm text-muted">
         Empleados y todo lo que cobran: sueldo fijo, valor hora, monto por evento trabajado y

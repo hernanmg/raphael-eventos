@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import type { CardType, MonthReport, YearReport } from '@raphael-eventos/shared';
 import { useYearReport } from '../../../hooks/usePhase4';
 import { apiUrl } from '../../../lib/api';
@@ -9,6 +8,7 @@ import {
   formatCurrency,
   formatDate,
 } from '../../../lib/format';
+import { AdminPageNav } from '../../../components/admin/AdminPageNav';
 
 const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
@@ -55,10 +55,8 @@ export default function ReportsPage() {
   );
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-16 print:max-w-none print:px-0 print:py-0">
-      <Link to="/admin" className="text-sm text-muted hover:text-ink print:hidden">
-        ← Panel admin
-      </Link>
+    <main className="mx-auto max-w-5xl px-4 pb-16 pt-6 sm:px-6 md:pt-10 print:max-w-none print:px-0 print:py-0">
+      <AdminPageNav />
       <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-serif text-3xl font-semibold">Reportes {year}</h1>

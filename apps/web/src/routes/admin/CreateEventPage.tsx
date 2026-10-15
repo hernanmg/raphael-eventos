@@ -8,6 +8,7 @@ import { useEmployees } from '../../hooks/useStaff';
 import { api, ApiError } from '../../lib/api';
 import { FormField } from '../../components/FormField';
 import { CARD_TYPE_LABELS, EVENT_TYPE_LABELS } from '../../lib/format';
+import { AdminPageNav } from '../../components/admin/AdminPageNav';
 
 const EVENT_TYPES = ['QUINCE', 'EGRESO', 'BODA', 'EMPRESARIAL'] as const;
 const CARD_TYPES = ['ADULTO', 'ADOLESCENTE', 'MENOR', 'BRINDIS'] as const;
@@ -100,10 +101,8 @@ export default function CreateEventPage() {
   });
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-16">
-      <Link to="/admin" className="text-sm text-muted hover:text-ink">
-        ← Panel admin
-      </Link>
+    <main className="mx-auto max-w-2xl px-4 pb-16 pt-6 sm:px-6 md:pt-10">
+      <AdminPageNav />
       <h1 className="mt-4 font-serif text-3xl font-semibold">Cargar evento</h1>
       <p className="mt-2 text-sm text-muted">
         El email del titular es lo que vincula el evento a la cuenta del cliente — si ya tiene

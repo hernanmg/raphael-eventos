@@ -8,6 +8,7 @@ import {
   formatDate,
   formatTimestamp,
 } from '../../../lib/format';
+import { AdminPageNav } from '../../../components/admin/AdminPageNav';
 
 const STATUS_ORDER: LeadStatus[] = ['NUEVO', 'CONTACTADO', 'CON_SENA', 'GANADO', 'PERDIDO'];
 
@@ -16,10 +17,8 @@ export default function LeadsPage() {
   const { data, isLoading, isError } = useLeads(filter);
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-16">
-      <Link to="/admin" className="text-sm text-muted hover:text-ink">
-        ← Panel admin
-      </Link>
+    <main className="mx-auto max-w-4xl px-4 pb-16 pt-6 sm:px-6 md:pt-10">
+      <AdminPageNav />
       <h1 className="mt-4 font-serif text-3xl font-semibold">Consultas</h1>
       <p className="mt-2 text-sm text-muted">
         Leads que llegan desde el formulario de cotización de la landing, más las que se cargan a

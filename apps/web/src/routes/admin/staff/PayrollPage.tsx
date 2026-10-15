@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   CommissionAdvanceInputSchema,
   EmployeeTimeEntryInputSchema,
@@ -23,6 +23,7 @@ import {
 } from '../../../hooks/useStaff';
 import { ApiError } from '../../../lib/api';
 import { formatCurrency, formatDate } from '../../../lib/format';
+import { AdminPageNav } from '../../../components/admin/AdminPageNav';
 
 export default function PayrollPage() {
   const { employeeId } = useParams<{ employeeId: string }>();
@@ -32,10 +33,8 @@ export default function PayrollPage() {
   if (!employeeId) return null;
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
-      <Link to="/admin/personal" className="text-sm text-muted hover:text-ink">
-        ← Personal
-      </Link>
+    <main className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6 md:pt-10">
+      <AdminPageNav />
       <h1 className="mt-4 font-serif text-3xl font-semibold">
         Liquidación{employee ? ` — ${employee.fullName}` : ''}
       </h1>

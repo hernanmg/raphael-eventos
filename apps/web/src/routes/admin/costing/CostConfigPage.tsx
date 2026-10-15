@@ -17,6 +17,7 @@ import {
 import { formatCurrency } from '../../../lib/format';
 import { errorText } from '../../../lib/guestLinks';
 import { FormError } from './formErrors';
+import { AdminPageNav } from '../../../components/admin/AdminPageNav';
 
 // Misma convención visual que el Excel de Fede: amarillo = valores que carga
 // a mano, verde = se calculan solos.
@@ -25,10 +26,8 @@ const CALCULATED_BADGE = 'bg-emerald-100 text-emerald-800';
 
 export default function CostConfigPage() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
-      <Link to="/admin" className="text-sm text-muted hover:text-ink">
-        ← Panel admin
-      </Link>
+    <main className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6 md:pt-10">
+      <AdminPageNav />
       <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
         <h1 className="font-serif text-3xl font-semibold">Configuración de costeo</h1>
         <Link
