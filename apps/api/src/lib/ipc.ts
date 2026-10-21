@@ -208,10 +208,16 @@ export async function getIpcStaleness(tenantId: string): Promise<IpcStalenessSta
     const stale = !lastRow || lastRow.period.getTime() < expectedPeriod.getTime();
     if (!stale) return { stale: false, message: null };
 
+    // Se muestra en /admin/ipc y como banner del dashboard: el texto no puede
+    // decir "acá abajo".
+    const month = new Intl.DateTimeFormat('es-AR', {
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    }).format(expectedPeriod);
     return {
       stale: true,
-      message:
-        'No se pudo obtener el valor actualizado del IPC. Comunicarse con administración: cargá el período manualmente acá abajo con el valor anterior y el último publicado.',
+      message: `Todavía no entró la inflación de ${month}. Si no llega sola, buscá el % en el INDEC y cargalo a mano en "Estado del IPC" → "Cargar un mes a mano".`,
     };
   });
 }

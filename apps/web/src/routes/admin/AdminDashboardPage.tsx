@@ -9,6 +9,7 @@ import { useSession } from '../../hooks/useSession';
 import { AdminIcon } from '../../components/admin/AdminIcon';
 import { ADMIN_NAV, visibleItems, type AdminNavItem } from '../../components/admin/adminNav';
 import { EVENT_TYPE_LABELS, formatCurrency, formatDate } from '../../lib/format';
+import { formatPeriodMonth, formatVariation } from '../../lib/ipc';
 
 type Filter = EventType | 'ALL' | null;
 
@@ -63,6 +64,10 @@ export default function AdminDashboardPage() {
   const isPro = session?.tenantPlan === 'PRO';
   const newLeads = newLeadsData?.leads.length;
   const ipcStale = ipcData?.staleness.stale ?? false;
+  const latestIpc = ipcData?.history[0];
+  const ipcSummary = latestIpc
+    ? `${formatPeriodMonth(latestIpc.period)} ${formatVariation(latestIpc.sourceLatestValue)}`
+    : undefined;
 
   const statCards = data && (
     <div
@@ -185,8 +190,8 @@ export default function AdminDashboardPage() {
           >
             <TileHeader label="IPC" />
             <IpcChip stale={ipcStale} loaded={!!ipcData} />
-            <span className="text-xs text-muted">
-              {ipcStale ? 'Falta cargar el índice del mes' : 'Tarjetas con el último índice'}
+            <span className="text-xs text-muted first-letter:uppercase">
+              {ipcStale ? 'Falta el dato del último mes' : (ipcSummary ?? '')}
             </span>
           </Link>
         </div>
@@ -235,7 +240,7 @@ export default function AdminDashboardPage() {
                 <li key={item.to}>
                   <ModuleCard
                     item={item}
-                    meta={moduleMeta(item.to, { newLeads, ipcStale, ipcLoaded: !!ipcData, report })}
+                    meta={moduleMeta(item.to, { newLeads, ipcStale, ipcSummary, report })}
                   />
                 </li>
               ))}
@@ -330,7 +335,7 @@ type Meta = { text: string; tone: 'hot' | 'ok' | 'warn' | 'plain' } | null;
 
 function moduleMeta(
   to: string,
-  ctx: { newLeads?: number; ipcStale: boolean; ipcLoaded: boolean; report?: YearReport },
+  ctx: { newLeads?: number; ipcStale: boolean; ipcSummary?: string; report?: YearReport },
 ): Meta {
   switch (to) {
     case '/admin/consultas':
@@ -339,10 +344,9 @@ function moduleMeta(
         ? { text: `${ctx.newLeads} ${ctx.newLeads === 1 ? 'nueva' : 'nuevas'}`, tone: 'hot' }
         : { text: 'Sin consultas nuevas', tone: 'plain' };
     case '/admin/ipc':
-      if (!ctx.ipcLoaded) return null;
-      return ctx.ipcStale
-        ? { text: 'Desactualizado', tone: 'warn' }
-        : { text: 'Al día', tone: 'ok' };
+      if (ctx.ipcStale) return { text: 'Desactualizado', tone: 'warn' };
+      if (!ctx.ipcSummary) return null;
+      return { text: `Al día · ${ctx.ipcSummary}`, tone: 'ok' };
     case '/admin/reportes': {
       const committed = ctx.report?.totals.committed ?? 0;
       if (!ctx.report || committed <= 0) return null;

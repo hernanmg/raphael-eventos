@@ -127,18 +127,25 @@ export const CardAdjustmentSchema = z.object({
 export type CardAdjustmentInput = z.infer<typeof CardAdjustmentSchema>;
 
 /**
- * Ambos valores son puntos porcentuales de variación intermensual del IPC
- * (ej. 2.11 = +2.11% ese mes) — el mismo dato que devuelve la serie de
- * datos.gob.ar (145.3_INGNACUAL_DICI_M_38, "Variación intermensual"), no
- * niveles de índice. Se permiten negativos por si algún mes hay deflación.
- * Solo `sourceLatestValue` participa del cálculo (ver admin.service.ts#addIpcEntry);
- * `sourcePreviousValue` queda de referencia/auditoría.
+ * `variationPct` = puntos porcentuales de variación intermensual del IPC de
+ * ese mes (ej. 2.11 = +2.11%) — el mismo dato que devuelve la serie de
+ * datos.gob.ar (145.3_INGNACUAL_DICI_M_38, "Variación intermensual"), no un
+ * nivel de índice. Se permiten negativos por si algún mes hay deflación. Se
+ * guarda en `sourceLatestValue`; `sourcePreviousValue` lo completa el server
+ * con la variación del mes anterior ya guardada (ver admin.service.ts#addIpcEntry).
  */
 export const CreateIpcEntrySchema = z.object({
-  /** Mes que representa el dato (primer día de mes, ej. "2026-09-01"). */
-  period: z.string().trim().min(1, 'Elegí el período'),
-  sourcePreviousValue: z.coerce.number().min(-50).max(100),
-  sourceLatestValue: z.coerce.number().min(-50).max(100),
+  /** Cualquier día del mes que representa el dato (el server lo lleva al día 1). */
+  period: z.string().trim().min(1, 'Elegí el mes'),
+  // El <input> vacío llega como "" y z.coerce lo convertiría en 0 (un 0% que
+  // nadie cargó): se pasa a undefined para que falle como "falta el dato".
+  variationPct: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.coerce
+      .number({ invalid_type_error: 'Cargá el % de variación' })
+      .min(-50, 'Revisá el valor')
+      .max(100, 'Revisá el valor'),
+  ),
 });
 export type CreateIpcEntryInput = z.infer<typeof CreateIpcEntrySchema>;
 

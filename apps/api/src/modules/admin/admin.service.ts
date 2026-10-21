@@ -481,13 +481,17 @@ export async function listIpcHistory(tenantId: string): Promise<IpcHistoryEntry[
  * lib/ipc.ts) para cuando el admin necesita cargar un período a mano (falta
  * de conectividad, IPC todavía no publicado pasado el día 14, etc.).
  *
- * `sourcePreviousValue`/`sourceLatestValue` son puntos porcentuales de
- * variación intermensual (el mismo dato que devuelve la serie de datos.gob.ar
- * — ej. 2.11 significa +2.11% ese mes), **no niveles de índice**. Único el
- * último valor participa del cálculo — el anterior queda solo de referencia/
- * auditoría (para poder cotejar contra lo que ya se había cargado el mes
- * pasado). El encadenamiento es `índice_nuevo = índice_anterior × (1 +
- * variación/100)`, arrancando en 100 si es el primer período del tenant.
+ * `variationPct` son puntos porcentuales de variación intermensual (el mismo
+ * dato que devuelve la serie de datos.gob.ar — ej. 2.11 significa +2.11% ese
+ * mes), **no niveles de índice**. Se guarda en `sourceLatestValue`;
+ * `sourcePreviousValue` (solo referencia/auditoría, mismo criterio que el
+ * cron) se completa con la variación del mes anterior ya guardada — el form
+ * pedía los dos valores aunque solo uno entraba en el cálculo. El
+ * encadenamiento es `índice_nuevo = índice_del_mes_anterior × (1 +
+ * variación/100)`, arrancando en 100 si es el primer período del tenant. La
+ * base es la última fila **anterior** al período cargado, no la última a
+ * secas: si no, re-cargar el último mes (corregir un valor mal tipeado)
+ * encadenaba sobre sí mismo y aplicaba la variación dos veces.
  *
  * **Corregido en esta sesión**: la fórmula original (heredada de Fase 1)
  * hacía `sourceLatestValue / sourcePreviousValue`, que sería correcta si la
@@ -507,19 +511,22 @@ export async function addIpcEntry(
   return withTenant(tenantId, async (tx) => {
     const period = firstOfMonth(input.period);
 
-    const lastRow = await tx.ipcIndexValue.findFirst({
-      where: { tenantId },
+    const previousRow = await tx.ipcIndexValue.findFirst({
+      where: { tenantId, period: { lt: period } },
       orderBy: { period: 'desc' },
     });
-    const baseIndex = lastRow ? Number(lastRow.indexValue) : 100;
-    const indexValue = Number((baseIndex * (1 + input.sourceLatestValue / 100)).toFixed(6));
+    const baseIndex = previousRow ? Number(previousRow.indexValue) : 100;
+    const indexValue = Number((baseIndex * (1 + input.variationPct / 100)).toFixed(6));
+    const previousVariation = previousRow
+      ? Number(previousRow.sourceLatestValue)
+      : input.variationPct;
 
     const row = await tx.ipcIndexValue.upsert({
       where: { tenantId_period: { tenantId, period } },
       update: {
         indexValue,
-        sourcePreviousValue: input.sourcePreviousValue,
-        sourceLatestValue: input.sourceLatestValue,
+        sourcePreviousValue: previousVariation,
+        sourceLatestValue: input.variationPct,
         triggeredById: adminUserId,
         fetchedAt: new Date(),
       },
@@ -527,8 +534,8 @@ export async function addIpcEntry(
         tenantId,
         period,
         indexValue,
-        sourcePreviousValue: input.sourcePreviousValue,
-        sourceLatestValue: input.sourceLatestValue,
+        sourcePreviousValue: previousVariation,
+        sourceLatestValue: input.variationPct,
         triggeredById: adminUserId,
       },
       include: { triggeredBy: { select: { fullName: true } } },
@@ -538,11 +545,11 @@ export async function addIpcEntry(
       entityType: 'IpcIndexValue',
       entityId: row.id,
       action: 'CREATE',
-      summary: `IPC cargado a mano para ${period.toISOString().slice(0, 7)}: +${input.sourceLatestValue}%`,
+      summary: `IPC cargado a mano para ${period.toISOString().slice(0, 7)}: ${input.variationPct >= 0 ? '+' : ''}${input.variationPct}%`,
       changes: {
         periodo: period.toISOString(),
-        variacionPct: input.sourceLatestValue,
-        variacionAnteriorPct: input.sourcePreviousValue,
+        variacionPct: input.variationPct,
+        variacionAnteriorPct: previousVariation,
         indiceAnterior: baseIndex,
         indiceResultante: indexValue,
         origen: 'MANUAL',

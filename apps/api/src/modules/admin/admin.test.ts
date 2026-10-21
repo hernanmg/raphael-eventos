@@ -221,14 +221,13 @@ describe('admin.service — IPC', () => {
     // (documentado, no es un bug).
     const entry = await addIpcEntry(tenantId, adminUserId, {
       period: '2099-01-01',
-      sourcePreviousValue: 100,
-      sourceLatestValue: 105,
+      variationPct: 5,
     });
 
     const history = await listIpcHistory(tenantId);
     const found = history.find((h) => h.id === entry.id);
     expect(found).toBeDefined();
-    expect(found?.sourceLatestValue).toBe(105);
+    expect(found?.sourceLatestValue).toBe(5);
 
     // limpieza puntual de esta fila (no matchea el prefijo test-admin- porque
     // el id lo genera Prisma)
