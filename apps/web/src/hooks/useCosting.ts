@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   CostCategoryInput,
   ExpenseInput,
+  StockAssignInput,
   TenantCostConfigInput,
 } from '@raphael-eventos/shared';
 import { api } from '../lib/api';
@@ -80,6 +81,7 @@ export function useSaveExpense() {
     }) => api.saveExpense(id, input, receipt),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stock'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'events'] });
     },
   });
@@ -90,6 +92,28 @@ export function useDeleteExpense() {
   return useMutation({
     mutationFn: (id: string) => api.deleteExpense(id),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stock'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'events'] });
+    },
+  });
+}
+
+export function useStock() {
+  return useQuery({
+    queryKey: ['admin', 'stock'],
+    queryFn: api.listStock,
+    select: (data) => data.stock,
+  });
+}
+
+export function useAssignStock() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: StockAssignInput }) =>
+      api.assignStock(id, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stock'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'expenses'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'events'] });
     },

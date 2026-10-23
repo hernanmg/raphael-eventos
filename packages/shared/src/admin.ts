@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { CardTypeSchema, EventTypeSchema, EventStatusSchema } from './enums';
 import { optionalText } from './zodHelpers';
 import type { AccountRole, EventStatus, EventType } from './enums';
-import type { CardSummary, PaymentSummary } from './portal';
+import type { CardSummary, MinimumCharge, PaymentSummary } from './portal';
 
 const PaymentAllocationInputSchema = z.object({
   cardType: CardTypeSchema,
@@ -59,7 +59,11 @@ export type AlumnoInput = z.infer<typeof AlumnoInputSchema>;
 
 /**
  * Alta de evento. `cards` son las 4 tarjetas (algunas en 0 si no aplican al
- * evento). En EGRESO, `cards` es la plantilla que se aplica igual a cada
+ * evento). La cantidad NO es obligatoria (feedback 2026-10-23: al firmar no
+ * saben cuántos invitados van a tener): alcanza con el valor, y la cantidad
+ * sube sola al asignar pagos. `minGuests` aplica a todos los tipos (default
+ * 100 en el form); en 15/boda/empresarial lo que falte se cobra a valor
+ * Adulto (ver MinimumCharge). En EGRESO, `cards` es la plantilla que se aplica igual a cada
  * alumno de `alumnos` (simplificación de la Fase 1 — todos los alumnos de un
  * mismo egreso comparten el mismo desglose; ajustar valores por alumno
  * individual queda para más adelante).
@@ -83,8 +87,8 @@ export const CreateEventSchema = z
     /** Fecha de la venta (default: hoy) — define el mes de la comisión. */
     soldAt: optionalText(z.string().trim().min(1)),
   })
-  .refine((data) => data.cards.some((card) => card.quantity > 0), {
-    message: 'Cargá una cantidad mayor a 0 en al menos un tipo de tarjeta',
+  .refine((data) => data.cards.some((card) => card.quantity > 0 || card.baseValue > 0), {
+    message: 'Cargá el valor de al menos un tipo de tarjeta',
     path: ['cards'],
   })
   .refine((data) => data.type !== 'EGRESO' || data.alumnos.length > 0, {
@@ -97,7 +101,8 @@ export type CreateEventInput = z.infer<typeof CreateEventSchema>;
  * Edición de un evento ya creado (Fase 4). El tipo NO se edita (define la
  * estructura de beneficiaries). Cambiar `titularEmail` re-vincula el portal:
  * el titular viejo pierde acceso, el nuevo lo gana (ver
- * admin.service.ts#updateEvent). `minGuests` solo aplica a EGRESO.
+ * admin.service.ts#updateEvent). `minGuests` aplica a todos los tipos.
+ * Para cancelar se usa CancelEventSchema (pide motivo y devolución).
  */
 export const UpdateEventSchema = z.object({
   name: z.string().trim().min(2, 'Ingresá un nombre para el evento').max(160),
@@ -111,6 +116,33 @@ export const UpdateEventSchema = z.object({
   soldAt: optionalText(z.string().trim().min(1)),
 });
 export type UpdateEventInput = z.infer<typeof UpdateEventSchema>;
+
+/**
+ * Baja de un evento (feedback 2026-10-23): la seña se pierde; si se devuelve
+ * algo de las cuotas, se registra el monto (opcional). Los pagos quedan como
+ * historial y la cobranza de reportes resta la devolución.
+ */
+export const CancelEventSchema = z.object({
+  reason: z.string().trim().min(3, 'Contá el motivo de la baja').max(300),
+  refundAmount: optionalText(z.coerce.number().min(0, 'No puede ser negativo').max(1_000_000_000)),
+});
+export type CancelEventInput = z.infer<typeof CancelEventSchema>;
+
+/**
+ * Tipos de tarjeta que tiene todo evento (feedback 2026-10-23): se crean al
+ * dar de alta aunque estén en 0 (cantidad y valor se completan después con
+ * "Ajustar"). Brindis solo si se carga algo.
+ */
+export const BASE_CARD_TYPES = ['ADULTO', 'ADOLESCENTE', 'MENOR'] as const;
+
+/** "Agregar tipo de tarjeta" a un evento ya creado (en egreso, a cada alumno
+ *  que no lo tenga, con la misma cantidad y valor). */
+export const AddCardTypeSchema = z.object({
+  cardType: CardTypeSchema,
+  quantity: z.coerce.number().int().min(0, 'No puede ser negativa').max(100_000),
+  unitValue: z.coerce.number().min(0, 'No puede ser negativo').max(1_000_000_000),
+});
+export type AddCardTypeInput = z.infer<typeof AddCardTypeSchema>;
 
 /**
  * Ajuste MANUAL de una tarjeta (renegociación) — Fase 4. No es un UPDATE
@@ -149,6 +181,11 @@ export const CreateIpcEntrySchema = z.object({
 });
 export type CreateIpcEntryInput = z.infer<typeof CreateIpcEntrySchema>;
 
+/** Corrección de un mes cargado a mano: solo el %, el mes no cambia (para
+ *  cambiar de mes se borra y se carga de nuevo). */
+export const UpdateIpcEntrySchema = CreateIpcEntrySchema.pick({ variationPct: true });
+export type UpdateIpcEntryInput = z.infer<typeof UpdateIpcEntrySchema>;
+
 export interface AdminEventListItem {
   id: string;
   name: string;
@@ -178,6 +215,7 @@ export interface AdminBeneficiaryDetail {
   /** true si ya hay una cuenta de cliente vinculada a este beneficiary. */
   linked: boolean;
   cards: CardSummary[];
+  minimumCharge: MinimumCharge | null;
   payments: PaymentSummary[];
   totalValue: number;
   totalPaid: number;
@@ -207,6 +245,12 @@ export interface AdminEventDetail {
   soldByEmployeeId: string | null;
   soldByEmployeeName: string | null;
   soldAt: string | null;
+  cancelledAt: string | null;
+  cancellationReason: string | null;
+  refundAmount: number | null;
+  /** Último mes de IPC guardado (ISO) — para "actualizada con el IPC de X,
+   *  próxima actualización con el de X+1". null = no hay IPC cargado. */
+  latestIpcPeriod: string | null;
   beneficiaries: AdminBeneficiaryDetail[];
   totals: {
     totalValue: number;
@@ -241,6 +285,7 @@ export interface BeneficiaryReport {
   eventType: EventType;
   beneficiaryLabel: string | null;
   cards: CardSummary[];
+  minimumCharge: MinimumCharge | null;
   payments: PaymentSummary[];
   totalValue: number;
   totalPaid: number;
@@ -303,4 +348,35 @@ export interface IpcHistoryEntry {
 export interface IpcStalenessStatus {
   stale: boolean;
   message: string | null;
+}
+
+/** Una asignación de pago a esta tarjeta — "Pagas 18/40" → de dónde salen las 18. */
+export interface CardPaidAllocation {
+  paymentId: string;
+  paymentDate: string;
+  paymentAmount: number;
+  note: string | null;
+  quantity: number;
+  /** Valor congelado por tarjeta. */
+  unitValue: number;
+  subtotal: number;
+}
+
+/** Un punto de la evolución del valor unitario de la tarjeta. */
+export interface CardValuePoint {
+  /** Mes (ISO, día 1). */
+  period: string;
+  unitValue: number;
+  kind: 'ALTA' | 'IPC' | 'AJUSTE';
+  /** % del IPC de ese mes (kind IPC). */
+  variationPct: number | null;
+  /** Motivo (kind AJUSTE). */
+  reason: string | null;
+}
+
+export interface CardHistory {
+  card: CardSummary;
+  allocations: CardPaidAllocation[];
+  /** Del más viejo al más nuevo. */
+  valueHistory: CardValuePoint[];
 }

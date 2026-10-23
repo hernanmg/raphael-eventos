@@ -1,10 +1,13 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import {
+  AddCardTypeSchema,
+  CancelEventSchema,
   CardAdjustmentSchema,
   CreateEventSchema,
   CreateIpcEntrySchema,
   RecordPaymentSchema,
   UpdateEventSchema,
+  UpdateIpcEntrySchema,
 } from '@raphael-eventos/shared';
 import { requireRole } from '../../middleware/requireRole';
 import { parseBody } from '../../lib/validate';
@@ -15,12 +18,19 @@ import {
   EventNotFoundError,
   InvalidSellerError,
   InvalidAllocationError,
+  InvalidCancellationError,
   InvalidCardAdjustmentError,
+  IpcEntryNotEditableError,
+  IpcEntryNotFoundError,
+  addCardType,
   addIpcEntry,
   adjustCard,
+  cancelEvent,
   createEvent,
+  deleteIpcEntry,
   deletePayment,
   getBeneficiaryReport,
+  getCardHistory,
   getClientDetail,
   getDashboard,
   getEventDetailForAdmin,
@@ -29,6 +39,7 @@ import {
   recordPayment,
   resetClientPassword,
   updateEvent,
+  updateIpcEntry,
 } from './admin.service';
 import { getIpcStaleness } from '../../lib/ipc';
 
@@ -77,6 +88,58 @@ adminRouter.put('/events/:eventId', async (req, res, next) => {
     }
     if (err instanceof EventNotFoundError) {
       res.status(404).json({ error: { message: 'Evento no encontrado' } });
+      return;
+    }
+    next(err);
+  }
+});
+
+// Baja del evento con motivo y devolución opcional (feedback 2026-10-23).
+adminRouter.post('/events/:eventId/cancel', async (req, res, next) => {
+  try {
+    const input = parseBody(CancelEventSchema, req.body, res);
+    if (!input) return;
+    const event = await cancelEvent(req.tenantId, req.params.eventId, input);
+    res.json({ event: { id: event.id, name: event.name, status: event.status } });
+  } catch (err) {
+    if (err instanceof EventNotFoundError) {
+      res.status(404).json({ error: { message: 'Evento no encontrado' } });
+      return;
+    }
+    if (err instanceof InvalidCancellationError) {
+      res.status(400).json({ error: { message: err.message } });
+      return;
+    }
+    next(err);
+  }
+});
+
+// Agregar un tipo de tarjeta que el evento no tiene (feedback 2026-10-23).
+adminRouter.post('/events/:eventId/cards', async (req, res, next) => {
+  try {
+    const input = parseBody(AddCardTypeSchema, req.body, res);
+    if (!input) return;
+    res.status(201).json(await addCardType(req.tenantId, req.params.eventId, input));
+  } catch (err) {
+    if (err instanceof EventNotFoundError) {
+      res.status(404).json({ error: { message: 'Evento no encontrado' } });
+      return;
+    }
+    if (err instanceof InvalidCardAdjustmentError) {
+      res.status(400).json({ error: { message: err.message } });
+      return;
+    }
+    next(err);
+  }
+});
+
+// Historial de una tarjeta: pagos que la cubren y evolución del valor.
+adminRouter.get('/cards/:cardId/history', async (req, res, next) => {
+  try {
+    res.json({ history: await getCardHistory(req.tenantId, req.params.cardId) });
+  } catch (err) {
+    if (err instanceof CardNotFoundError) {
+      res.status(404).json({ error: { message: 'Tarjeta no encontrada' } });
       return;
     }
     next(err);
@@ -141,6 +204,43 @@ adminRouter.post('/ipc', async (req, res, next) => {
     const entry = await addIpcEntry(req.tenantId, req.currentUser!.id, input);
     res.status(201).json({ entry });
   } catch (err) {
+    next(err);
+  }
+});
+
+function ipcEntryError(err: unknown, res: Response): boolean {
+  if (err instanceof IpcEntryNotFoundError) {
+    res.status(404).json({ error: { message: 'Mes de IPC no encontrado' } });
+    return true;
+  }
+  if (err instanceof IpcEntryNotEditableError) {
+    res.status(400).json({
+      error: { message: 'Los meses traídos automáticamente del INDEC no se editan' },
+    });
+    return true;
+  }
+  return false;
+}
+
+// Corrección / baja de un mes cargado a mano (re-encadena los siguientes).
+adminRouter.put('/ipc/:id', async (req, res, next) => {
+  try {
+    const input = parseBody(UpdateIpcEntrySchema, req.body, res);
+    if (!input) return;
+    const entry = await updateIpcEntry(req.tenantId, req.currentUser!.id, req.params.id, input);
+    res.json({ entry });
+  } catch (err) {
+    if (ipcEntryError(err, res)) return;
+    next(err);
+  }
+});
+
+adminRouter.delete('/ipc/:id', async (req, res, next) => {
+  try {
+    await deleteIpcEntry(req.tenantId, req.params.id);
+    res.status(204).end();
+  } catch (err) {
+    if (ipcEntryError(err, res)) return;
     next(err);
   }
 });

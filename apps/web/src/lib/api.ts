@@ -4,6 +4,12 @@ import type {
   AdminSponsor,
   AuditLogPage,
   CardAdjustmentInput,
+  AddCardTypeInput,
+  CancelEventInput,
+  CardHistory,
+  StockAssignInput,
+  StockPurchase,
+  UpdateIpcEntryInput,
   EventType,
   ProviderInput,
   PublicProvider,
@@ -168,6 +174,20 @@ export const api = {
       { method: 'PUT', body: JSON.stringify(input) },
     ),
 
+  addCardType: (eventId: string, input: AddCardTypeInput) =>
+    request<{ added: number }>(`/api/v1/admin/events/${eventId}/cards`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  cancelEvent: (eventId: string, input: CancelEventInput) =>
+    request<{ event: { id: string; name: string; status: string } }>(
+      `/api/v1/admin/events/${eventId}/cancel`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+
+  getCardHistory: (cardId: string) =>
+    request<{ history: CardHistory }>(`/api/v1/admin/cards/${cardId}/history`),
+
   adjustCard: (cardId: string, input: CardAdjustmentInput) =>
     request<{ adjustmentId: string }>(`/api/v1/admin/cards/${cardId}/adjustments`, {
       method: 'POST',
@@ -331,6 +351,14 @@ export const api = {
       body: JSON.stringify(input),
     }),
 
+  updateIpcEntry: (id: string, input: UpdateIpcEntryInput) =>
+    request<{ entry: IpcHistoryEntry }>(`/api/v1/admin/ipc/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
+
+  deleteIpcEntry: (id: string) => request<null>(`/api/v1/admin/ipc/${id}`, { method: 'DELETE' }),
+
   recordPayment: (beneficiaryId: string, input: RecordPaymentInput) =>
     request<RecordPaymentResult>(`/api/v1/admin/beneficiaries/${beneficiaryId}/payments`, {
       method: 'POST',
@@ -410,6 +438,14 @@ export const api = {
 
   deleteExpense: (id: string) =>
     request<null>(`/api/v1/admin/expenses/${id}`, { method: 'DELETE' }),
+
+  listStock: () => request<{ stock: StockPurchase[] }>('/api/v1/admin/stock'),
+
+  assignStock: (id: string, input: StockAssignInput) =>
+    request<{ expense: ExpenseSummary }>(`/api/v1/admin/stock/${id}/uses`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
 
   getEventCosting: (eventId: string, guestCount?: number) =>
     request<{ costing: EventCostingSummary }>(

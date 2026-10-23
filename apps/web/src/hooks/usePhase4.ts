@@ -1,5 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  AddCardTypeInput,
+  CancelEventInput,
   CardAdjustmentInput,
   EventType,
   ProviderInput,
@@ -21,12 +23,36 @@ export function useUpdateEvent(eventId: string) {
   });
 }
 
+export function useCancelEvent(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CancelEventInput) => api.cancelEvent(eventId, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'events', eventId] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+    },
+  });
+}
+
+export function useAddCardType(eventId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AddCardTypeInput) => api.addCardType(eventId, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'events', eventId] });
+    },
+  });
+}
+
 export function useAdjustCard(eventId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ cardId, input }: { cardId: string; input: CardAdjustmentInput }) =>
       api.adjustCard(cardId, input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'events', eventId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'events', eventId] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cards'] });
+    },
   });
 }
 

@@ -61,7 +61,7 @@ const emptyCards = (
 ).map((c) => ({ ...c }));
 
 describe('admin.service — alta de evento QUINCE/BODA/EMPRESARIAL', () => {
-  it('crea un único beneficiary con las tarjetas cargadas (las de cantidad 0 no se guardan)', async () => {
+  it('crea un único beneficiary con adulto/adolescente/menor siempre (brindis vacío no se guarda)', async () => {
     const event = await createEvent(tenantId, adminUserId, {
       type: 'BODA',
       name: 'Boda Test',
@@ -80,8 +80,12 @@ describe('admin.service — alta de evento QUINCE/BODA/EMPRESARIAL', () => {
     );
 
     expect(beneficiaries).toHaveLength(1);
-    expect(beneficiaries[0]?.cards).toHaveLength(2);
-    expect(beneficiaries[0]?.cards.map((c) => c.cardType).sort()).toEqual(['ADULTO', 'MENOR']);
+    expect(beneficiaries[0]?.cards).toHaveLength(3);
+    expect(beneficiaries[0]?.cards.map((c) => c.cardType).sort()).toEqual([
+      'ADOLESCENTE',
+      'ADULTO',
+      'MENOR',
+    ]);
   });
 
   it('si el titular ya tiene cuenta, lo vincula al toque (sin esperar a que se registre)', async () => {
@@ -137,8 +141,9 @@ describe('admin.service — alta de evento EGRESO', () => {
 
     expect(beneficiaries).toHaveLength(2);
     for (const beneficiary of beneficiaries) {
-      expect(beneficiary.cards).toHaveLength(1);
-      expect(beneficiary.cards[0]?.quantity).toBe(1);
+      // Adulto con lo cargado + adolescente/menor en 0 (siempre existen).
+      expect(beneficiary.cards).toHaveLength(3);
+      expect(beneficiary.cards.find((c) => c.cardType === 'ADULTO')?.quantity).toBe(1);
     }
   });
 
@@ -204,7 +209,7 @@ describe('admin.service — detalle de evento (admin ve todas las familias de un
     const detail = await getEventDetailForAdmin(tenantId, event.id);
 
     expect(detail.beneficiaries).toHaveLength(2);
-    expect(detail.beneficiaries.every((b) => b.cards.length === 1)).toBe(true);
+    expect(detail.beneficiaries.every((b) => b.cards.length === 3)).toBe(true);
     expect(detail.totals.totalValue).toBe(40000);
   });
 

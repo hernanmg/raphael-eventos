@@ -44,15 +44,6 @@ export function EventEditSection({ event }: { event: AdminEventDetail }) {
   const status = watch('status');
 
   const onSubmit = handleSubmit((values) => {
-    if (
-      values.status === 'CANCELADO' &&
-      event.status !== 'CANCELADO' &&
-      !window.confirm(
-        'Cancelar el evento lo saca del calendario, de los reportes, del micrositio, del check-in y de los recordatorios. ¿Seguir?',
-      )
-    ) {
-      return;
-    }
     update.mutate(values, {
       onSuccess: () => {
         reset(values);
@@ -95,11 +86,15 @@ export function EventEditSection({ event }: { event: AdminEventDetail }) {
         <label className="flex flex-col gap-1 text-xs">
           <span className="font-medium text-ink">Estado</span>
           <select className={field} {...register('status')}>
-            {Object.entries(EVENT_STATUS_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
+            {/* La baja va por "Cancelar evento" (pide motivo y devolución); acá
+                solo se puede reactivar un evento ya cancelado. */}
+            {Object.entries(EVENT_STATUS_LABELS)
+              .filter(([value]) => value !== 'CANCELADO' || event.status === 'CANCELADO')
+              .map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
           </select>
         </label>
         <label className="flex flex-col gap-1 text-xs">
@@ -135,12 +130,20 @@ export function EventEditSection({ event }: { event: AdminEventDetail }) {
           <span className="font-medium text-ink">Fecha de venta (mes de la comisión)</span>
           <input type="date" className={field} {...register('soldAt')} />
         </label>
-        {event.type === 'EGRESO' && (
-          <label className="flex flex-col gap-1 text-xs">
-            <span className="font-medium text-ink">Mínimo de invitados</span>
-            <input type="number" min={0} className={field} {...register('minGuests')} />
-          </label>
-        )}
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="font-medium text-ink">
+            {event.type === 'EGRESO'
+              ? 'Mínimo de invitados (informativo)'
+              : 'Mínimo de invitados (lo que falte se cobra a valor Adulto)'}
+          </span>
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            className={field}
+            {...register('minGuests')}
+          />
+        </label>
       </div>
 
       {titularChanged && (
@@ -149,10 +152,9 @@ export function EventEditSection({ event }: { event: AdminEventDetail }) {
           nuevo (si ya tiene cuenta; si no, al registrarse con ese email).
         </p>
       )}
-      {status === 'CANCELADO' && event.status !== 'CANCELADO' && (
-        <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
-          Un evento cancelado sale del calendario, de los reportes, del micrositio, del check-in y
-          de los recordatorios. Sus pagos y su historial quedan guardados.
+      {event.status === 'CANCELADO' && status !== 'CANCELADO' && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Reactivar el evento borra el motivo y la devolución de la baja (quedan en el historial).
         </p>
       )}
 

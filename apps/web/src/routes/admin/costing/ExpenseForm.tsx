@@ -28,8 +28,16 @@ const EMPTY_ITEM: ItemRow = {
   unitCost: '',
 };
 
+// w-full + min-w-0: sin esto un <input> no se achica por debajo de su ancho
+// intrínseco (~20 caracteres) y en la grilla de ítems el precio y "Quitar"
+// se salían de la card (feedback 2026-10-23).
 const inputClass =
-  'rounded-lg border border-line px-2.5 py-2 text-sm outline-none focus:border-ink disabled:bg-cream';
+  'w-full min-w-0 rounded-lg border border-line px-2.5 py-2 text-sm outline-none focus:border-ink disabled:bg-cream';
+
+// Misma plantilla para encabezados y filas, con minmax(0, …) para que las
+// columnas no crezcan con el contenido y queden alineadas con sus títulos.
+const ITEM_GRID =
+  'sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_auto]';
 
 function toNumber(value: string): number {
   return Number(value.replace(',', '.'));
@@ -44,7 +52,8 @@ function today(): string {
  * opcionales (producto, presentación, cantidad, unidad, precio — estructura de
  * la hoja PRECIOS. de Fede) y foto/PDF del ticket como respaldo (sin OCR).
  * Con `eventId` fijo se usa desde el costeo del evento; sin él, el admin
- * elige si el gasto es de un evento o del salón en un mes.
+ * elige si el gasto es de un evento, del salón en un mes o una compra para
+ * stock (sin evento ni mes: no cuenta en ningún costeo hasta que se asigna).
  */
 export function ExpenseForm({
   eventId,
@@ -64,8 +73,16 @@ export function ExpenseForm({
   const { data: dashboard } = useDashboard();
   const save = useSaveExpense();
 
-  const [target, setTarget] = useState<'event' | 'month'>(
-    initial ? (initial.eventId ? 'event' : 'month') : eventId ? 'event' : 'month',
+  const [target, setTarget] = useState<'event' | 'month' | 'stock'>(
+    initial
+      ? initial.isStock
+        ? 'stock'
+        : initial.eventId
+          ? 'event'
+          : 'month'
+      : eventId
+        ? 'event'
+        : 'month',
   );
   const [selectedEventId, setSelectedEventId] = useState(initial?.eventId ?? eventId ?? '');
   const [period, setPeriod] = useState(
@@ -123,6 +140,7 @@ export function ExpenseForm({
         unit: i.unit,
         unitCost: i.unitCost.replace(',', '.'),
       })),
+      stock: target === 'stock',
       removeReceipt,
     };
     const parsed = ExpenseInputSchema.safeParse(candidate);
@@ -167,7 +185,17 @@ export function ExpenseForm({
             <input type="radio" checked={target === 'month'} onChange={() => setTarget('month')} />
             Gasto del salón (se prorratea entre los eventos del mes)
           </label>
+          <label className="flex items-center gap-1.5">
+            <input type="radio" checked={target === 'stock'} onChange={() => setTarget('stock')} />
+            Compra para stock (se asigna a eventos cuando se usa)
+          </label>
         </div>
+      )}
+      {target === 'stock' && (
+        <p className="rounded-lg bg-cream px-3 py-2 text-xs text-muted">
+          No cuenta en el costeo de ningún evento hasta que, desde “Stock”, asignes a un evento lo
+          que se usó (todo o una parte).
+        </p>
       )}
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -302,7 +330,7 @@ export function ExpenseForm({
         </div>
         {items.length > 0 && (
           <div className="mt-2 flex flex-col gap-2">
-            <div className="hidden grid-cols-[2fr_1fr_0.8fr_0.8fr_1fr_1fr_auto] gap-2 text-xs text-muted sm:grid">
+            <div className={`hidden gap-2 text-xs text-muted sm:grid ${ITEM_GRID}`}>
               <span>Producto</span>
               <span>Presentación</span>
               <span>Cantidad</span>
@@ -316,7 +344,7 @@ export function ExpenseForm({
               return (
                 <div
                   key={index}
-                  className="grid grid-cols-2 gap-2 border-b border-line pb-2 sm:grid-cols-[2fr_1fr_0.8fr_0.8fr_1fr_1fr_auto] sm:border-0 sm:pb-0"
+                  className={`grid grid-cols-2 gap-2 border-b border-line pb-2 sm:border-0 sm:pb-0 ${ITEM_GRID}`}
                 >
                   <input
                     aria-label="Producto"
@@ -360,7 +388,9 @@ export function ExpenseForm({
                     onChange={(e) => updateItem(index, { unitCost: e.target.value })}
                     className={inputClass}
                   />
-                  <span className="self-center font-medium">{formatCurrency(lineTotal)}</span>
+                  <span className="self-center truncate font-medium tabular-nums">
+                    {formatCurrency(lineTotal)}
+                  </span>
                   <button
                     type="button"
                     onClick={() => setItems((rows) => rows.filter((_, i) => i !== index))}

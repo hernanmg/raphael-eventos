@@ -34,13 +34,46 @@ export function useIpcHistory() {
   });
 }
 
+/** Un cambio de IPC mueve el valor de las tarjetas impagas: además del
+ *  historial se invalidan los eventos y los reportes ya cargados. */
+function invalidateAfterIpc(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ['admin', 'ipc'] });
+  queryClient.invalidateQueries({ queryKey: ['admin', 'events'] });
+  queryClient.invalidateQueries({ queryKey: ['admin', 'reports'] });
+  queryClient.invalidateQueries({ queryKey: ['admin', 'cards'] });
+}
+
 export function useAddIpcEntry() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: api.addIpcEntry,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'ipc'] });
-    },
+    onSuccess: () => invalidateAfterIpc(queryClient),
+  });
+}
+
+export function useUpdateIpcEntry() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, variationPct }: { id: string; variationPct: number }) =>
+      api.updateIpcEntry(id, { variationPct }),
+    onSuccess: () => invalidateAfterIpc(queryClient),
+  });
+}
+
+export function useDeleteIpcEntry() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteIpcEntry(id),
+    onSuccess: () => invalidateAfterIpc(queryClient),
+  });
+}
+
+export function useCardHistory(cardId: string | null) {
+  return useQuery({
+    queryKey: ['admin', 'cards', cardId, 'history'],
+    queryFn: () => api.getCardHistory(cardId!),
+    enabled: Boolean(cardId),
+    select: (data) => data.history,
   });
 }
 
@@ -51,6 +84,7 @@ export function useRecordPayment(eventId: string) {
       api.recordPayment(beneficiaryId, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'events', eventId] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cards'] });
     },
   });
 }
@@ -61,6 +95,7 @@ export function useDeletePayment(eventId: string) {
     mutationFn: (paymentId: string) => api.deletePayment(paymentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'events', eventId] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'cards'] });
     },
   });
 }

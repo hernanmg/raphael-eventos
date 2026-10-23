@@ -3,6 +3,7 @@ import { withTenant } from '../../db/withTenant';
 import {
   computeAggregateFinancials,
   computeBeneficiaryFinancials,
+  chargeableMinimum,
   serializePayment,
 } from '../../lib/financials';
 
@@ -35,7 +36,7 @@ export async function listUserEvents(tenantId: string, userId: string): Promise<
       if (link.beneficiaryId) {
         const beneficiary = await tx.eventBeneficiary.findUniqueOrThrow({
           where: { id: link.beneficiaryId },
-          include: { cards: true, payments: true },
+          include: { cards: true, payments: { include: { allocations: true } } },
         });
         // El listado es un resumen — el desglose de tarjetas (`cards`) va
         // solo en el detalle (getUserEventDetail), por eso se descarta acá
@@ -43,7 +44,11 @@ export async function listUserEvents(tenantId: string, userId: string): Promise<
         // entero (eso filtró `cards` al payload del listado en la práctica:
         // TS no marca "excess property" en propiedades que vienen de un
         // spread, así que el tipo EventSummary no lo agarró).
-        const { cards: _cards, ...totals } = computeBeneficiaryFinancials(beneficiary, ipcRows);
+        const {
+          cards: _cards,
+          minimumCharge: _minimumCharge,
+          ...totals
+        } = computeBeneficiaryFinancials(beneficiary, ipcRows, chargeableMinimum(link.event));
         summaries.push({ ...base, scope: 'own', ...totals });
         continue;
       }
@@ -52,7 +57,7 @@ export async function listUserEvents(tenantId: string, userId: string): Promise<
       // nunca el detalle de cada familia (ver EventAccount en el schema).
       const beneficiaries = await tx.eventBeneficiary.findMany({
         where: { tenantId, eventId: link.eventId },
-        include: { cards: true, payments: true },
+        include: { cards: true, payments: { include: { allocations: true } } },
       });
       const aggregate = computeAggregateFinancials(beneficiaries, ipcRows);
       summaries.push({ ...base, scope: 'aggregate', ...aggregate });
@@ -99,7 +104,11 @@ export async function getUserEventDetail(
           payments: { include: { allocations: true }, orderBy: { paymentDate: 'desc' } },
         },
       });
-      const financials = computeBeneficiaryFinancials(beneficiary, ipcRows);
+      const financials = computeBeneficiaryFinancials(
+        beneficiary,
+        ipcRows,
+        chargeableMinimum(link.event),
+      );
 
       return {
         ...base,
@@ -114,7 +123,7 @@ export async function getUserEventDetail(
 
     const beneficiaries = await tx.eventBeneficiary.findMany({
       where: { tenantId, eventId: link.eventId },
-      include: { cards: true, payments: true },
+      include: { cards: true, payments: { include: { allocations: true } } },
     });
 
     return {

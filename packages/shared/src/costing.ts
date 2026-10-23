@@ -66,8 +66,10 @@ export const ExpenseItemInputSchema = z.object({
 export type ExpenseItemInput = z.infer<typeof ExpenseItemInputSchema>;
 
 /**
- * Gasto real (ticket). Va contra un evento (`eventId`) o contra un mes del
- * salón (`period` = "YYYY-MM", gastos fijos). Con ítems, el monto es su suma
+ * Gasto real (ticket). Va contra un evento (`eventId`), contra un mes del
+ * salón (`period` = "YYYY-MM", gastos fijos) o es una compra para stock
+ * (`stock`, sin evento ni mes: no entra en ningún costeo hasta que se asigna
+ * lo usado a un evento — ver StockAssignSchema). Con ítems, el monto es su suma
  * (lo calcula el server); sin ítems, `amount` es obligatorio. El ticket va
  * como archivo aparte en el mismo multipart (campo `receipt`).
  */
@@ -86,11 +88,13 @@ export const ExpenseInputSchema = z
     amount: optionalText(z.coerce.number().min(0).max(1_000_000_000)),
     detail: optionalText(z.string().trim().max(500)),
     items: z.array(ExpenseItemInputSchema).max(300).default([]),
+    /** Compra para stock (feedback 2026-10-23: compran en oferta para tener). */
+    stock: z.boolean().default(false),
     /** Solo en edición: quitar el ticket adjunto. */
     removeReceipt: z.boolean().default(false),
   })
-  .refine((v) => Boolean(v.eventId) !== Boolean(v.period), {
-    message: 'Elegí un evento o un mes (gasto del salón)',
+  .refine((v) => (v.stock ? !v.eventId && !v.period : Boolean(v.eventId) !== Boolean(v.period)), {
+    message: 'Elegí un evento, un mes (gasto del salón) o stock',
     path: ['eventId'],
   })
   .refine((v) => v.items.length > 0 || v.amount !== undefined, {
@@ -98,6 +102,19 @@ export const ExpenseInputSchema = z
     path: ['amount'],
   });
 export type ExpenseInput = z.infer<typeof ExpenseInputSchema>;
+
+/**
+ * Asignar a un evento lo usado de una compra para stock: crea un gasto del
+ * evento (mismo rubro y proveedor) por `amount`, que no puede superar lo que
+ * queda sin asignar. Borrar ese gasto devuelve el monto al stock.
+ */
+export const StockAssignSchema = z.object({
+  eventId: z.string().trim().min(1, 'Elegí el evento'),
+  amount: z.coerce.number().positive('Tiene que ser mayor a 0').max(1_000_000_000),
+  date: optionalText(z.string().trim().min(1)),
+  detail: optionalText(z.string().trim().max(300)),
+});
+export type StockAssignInput = z.infer<typeof StockAssignSchema>;
 
 export type ExpenseAutoSource = 'STAFF_EVENT' | 'SALE_COMMISSION' | 'PAYROLL';
 
@@ -134,6 +151,17 @@ export interface ExpenseSummary {
   manuallyEdited: boolean;
   receiptName: string | null;
   items: ExpenseItemSummary[];
+  /** Compra para stock (sin evento ni mes). */
+  isStock: boolean;
+  /** Gasto de un evento que sale de una compra para stock. */
+  stockSourceId: string | null;
+}
+
+/** Compra para stock con lo ya asignado a eventos. */
+export interface StockPurchase extends ExpenseSummary {
+  used: number;
+  remaining: number;
+  uses: { id: string; eventId: string; eventName: string; amount: number; date: string }[];
 }
 
 /** Totales por rubro de un listado de gastos. */

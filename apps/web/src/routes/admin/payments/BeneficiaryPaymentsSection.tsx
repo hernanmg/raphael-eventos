@@ -37,7 +37,13 @@ export function BeneficiaryPaymentsSection({
     formState: { isSubmitting },
   } = useForm<RecordPaymentInput>({ resolver: zodResolver(RecordPaymentSchema) });
 
-  const pendingCards = cards.filter((card) => card.quantity - card.quantityPaid > 0);
+  // Toda tarjeta con valor se puede asignar, aunque ya estén todas pagas o la
+  // cantidad esté en 0: la cantidad sube sola (feedback 2026-10-23).
+  const assignableCards = cards.filter((card) => card.unitValue > 0);
+  const allocatedValue = assignableCards.reduce(
+    (sum, card) => sum + (allocationQty[card.cardType] ?? 0) * card.unitValue,
+    0,
+  );
 
   const onSubmit = handleSubmit((values) => {
     setError(null);
@@ -97,7 +103,10 @@ export function BeneficiaryPaymentsSection({
                 <p className="text-xs text-muted">
                   Cubre:{' '}
                   {payment.allocations
-                    .map((a) => `${a.quantity} ${CARD_TYPE_LABELS[a.cardType]}`)
+                    .map(
+                      (a) =>
+                        `${a.quantity} ${CARD_TYPE_LABELS[a.cardType]} a ${formatCurrency(a.unitValue)} c/u`,
+                    )
                     .join(', ')}
                 </p>
               )}
@@ -119,6 +128,8 @@ export function BeneficiaryPaymentsSection({
           <input
             type="number"
             step="0.01"
+            min={0}
+            inputMode="decimal"
             placeholder="Monto"
             className="w-28 rounded-lg border border-line px-2 py-1.5 text-sm outline-none focus:border-ink"
             {...register('amount', { valueAsNumber: true })}
@@ -142,7 +153,7 @@ export function BeneficiaryPaymentsSection({
           </button>
         </div>
 
-        {pendingCards.length > 0 && (
+        {assignableCards.length > 0 && (
           <div>
             <button
               type="button"
@@ -152,25 +163,38 @@ export function BeneficiaryPaymentsSection({
               {showAllocations ? 'Ocultar' : '¿Este pago cubre tarjetas puntuales?'}
             </button>
             {showAllocations && (
-              <div className="mt-1.5 flex flex-wrap gap-3">
-                {pendingCards.map((card) => (
-                  <label key={card.cardType} className="flex items-center gap-1.5 text-xs">
-                    {CARD_TYPE_LABELS[card.cardType]} (faltan {card.quantity - card.quantityPaid}):
-                    <input
-                      type="number"
-                      min={0}
-                      max={card.quantity - card.quantityPaid}
-                      value={allocationQty[card.cardType] ?? ''}
-                      onChange={(e) =>
-                        setAllocationQty((prev) => ({
-                          ...prev,
-                          [card.cardType]: e.target.value ? Number(e.target.value) : undefined,
-                        }))
-                      }
-                      className="w-14 rounded border border-line px-1.5 py-1 text-xs outline-none focus:border-ink"
-                    />
-                  </label>
-                ))}
+              <div className="mt-1.5 flex flex-col gap-2">
+                <div className="flex flex-wrap gap-3">
+                  {assignableCards.map((card) => {
+                    const pending = card.quantity - card.quantityPaid;
+                    return (
+                      <label key={card.cardType} className="flex items-center gap-1.5 text-xs">
+                        {CARD_TYPE_LABELS[card.cardType]} ({formatCurrency(card.unitValue)} c/u
+                        {pending > 0 ? `, faltan ${pending}` : ', suma a la cantidad'}):
+                        <input
+                          type="number"
+                          min={0}
+                          inputMode="numeric"
+                          value={allocationQty[card.cardType] ?? ''}
+                          onChange={(e) =>
+                            setAllocationQty((prev) => ({
+                              ...prev,
+                              [card.cardType]: e.target.value ? Number(e.target.value) : undefined,
+                            }))
+                          }
+                          className="w-14 rounded border border-line px-1.5 py-1 text-xs outline-none focus:border-ink"
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+                {allocatedValue > 0 && (
+                  <p className="text-xs text-muted">
+                    Las tarjetas marcadas valen hoy {formatCurrency(allocatedValue)} y quedan fijas
+                    a ese valor (dejan de actualizarse por IPC). Si marcás más de las cargadas, la
+                    cantidad del evento sube sola.
+                  </p>
+                )}
               </div>
             )}
           </div>

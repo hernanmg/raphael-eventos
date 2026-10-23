@@ -62,6 +62,8 @@ export function ExpenseRow({
       .join(', ') ||
     'Gasto';
   const isPayroll = expense.autoSource === 'PAYROLL';
+  // Un uso de stock no se edita: se borra (vuelve al stock) y se asigna de nuevo.
+  const fromStock = Boolean(expense.stockSourceId);
 
   return (
     <li className="py-2">
@@ -75,9 +77,18 @@ export function ExpenseRow({
                 {expense.manuallyEdited ? ' (ajustado a mano)' : ''}
               </span>
             )}
+            {fromStock && (
+              <span className="ml-2 rounded bg-cream-2 px-1.5 py-0.5 text-xs font-normal">
+                del stock
+              </span>
+            )}
           </p>
           <p className="text-xs text-muted">
-            {expense.period ? `Salón · ${expense.period}` : formatDate(expense.date)}
+            {expense.isStock
+              ? `Stock · ${formatDate(expense.date)}`
+              : expense.period
+                ? `Salón · ${expense.period}`
+                : formatDate(expense.date)}
             {showEvent && expense.eventName ? ` · ${expense.eventName}` : ''}
             {expense.detail && title !== expense.detail ? ` · ${expense.detail}` : ''}
           </p>
@@ -105,17 +116,22 @@ export function ExpenseRow({
           )}
           {!isPayroll && (
             <>
-              <button
-                type="button"
-                onClick={() => setEditing(true)}
-                className="text-muted hover:text-ink"
-              >
-                Editar
-              </button>
+              {!fromStock && (
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  className="text-muted hover:text-ink"
+                >
+                  Editar
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
-                  if (window.confirm('¿Borrar este gasto?')) remove.mutate(expense.id);
+                  const question = fromStock
+                    ? '¿Quitar este uso del stock? El monto vuelve a quedar disponible en el stock.'
+                    : '¿Borrar este gasto?';
+                  if (window.confirm(question)) remove.mutate(expense.id);
                 }}
                 className="text-muted hover:text-red-600"
               >

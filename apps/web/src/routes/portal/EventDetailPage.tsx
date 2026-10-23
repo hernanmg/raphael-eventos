@@ -1,3 +1,4 @@
+import { MinimumChargeRow } from '../../components/MinimumChargeRow';
 import { Link, useParams } from 'react-router-dom';
 import type { EventDetail } from '@raphael-eventos/shared';
 import { useEventDetail } from '../../hooks/useEvents';
@@ -118,7 +119,7 @@ function OwnEventDetail({ own }: { own: NonNullable<EventDetail['own']> }) {
               <th className="px-4 py-3">Tipo</th>
               <th className="px-4 py-3">Cantidad</th>
               <th className="px-4 py-3">Pagas</th>
-              <th className="px-4 py-3">Valor actual (c/u)</th>
+              <th className="px-4 py-3">Valor c/u (impagas)</th>
               <th className="px-4 py-3">Subtotal</th>
             </tr>
           </thead>
@@ -140,6 +141,7 @@ function OwnEventDetail({ own }: { own: NonNullable<EventDetail['own']> }) {
                 <td className="px-4 py-3 font-medium">{formatCurrency(card.subtotal)}</td>
               </tr>
             ))}
+            <MinimumChargeRow charge={own.minimumCharge} cellClass="px-4 py-3" />
             {own.cards.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-6 text-center text-muted">
@@ -151,8 +153,8 @@ function OwnEventDetail({ own }: { own: NonNullable<EventDetail['own']> }) {
         </table>
       </div>
       <p className="mt-2 text-xs text-muted">
-        El valor de cada tarjeta se actualiza automáticamente por IPC — el que ves acá es el vigente
-        hoy, no el que se fijó al contratar.
+        Las tarjetas que todavía no pagaste se actualizan automáticamente por IPC — el valor que ves
+        acá es el vigente hoy. Las que ya pagaste quedan fijas al valor del día en que las pagaste.
       </p>
 
       <h2 className="mb-3 mt-8 font-serif text-xl font-semibold">Pagos</h2>

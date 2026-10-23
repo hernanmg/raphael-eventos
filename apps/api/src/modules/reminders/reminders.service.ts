@@ -5,7 +5,7 @@ import type {
   ReminderSweepResult,
 } from '@raphael-eventos/shared';
 import { withTenant } from '../../db/withTenant';
-import { computeBeneficiaryFinancials } from '../../lib/financials';
+import { chargeableMinimum, computeBeneficiaryFinancials } from '../../lib/financials';
 import { whatsAppSender } from '../../lib/whatsapp';
 import { prisma } from '../../db/prisma';
 
@@ -103,7 +103,7 @@ export async function runReminderSweep(
       tx.eventBeneficiary.findMany({
         // Fase 4: un evento cancelado/finalizado no genera recordatorios.
         where: { tenantId, event: { status: 'ACTIVO' } },
-        include: { cards: true, payments: true, event: true },
+        include: { cards: true, payments: { include: { allocations: true } }, event: true },
       }),
       tx.ipcIndexValue.findMany({ where: { tenantId }, orderBy: { period: 'asc' } }),
     ]);
@@ -112,7 +112,11 @@ export async function runReminderSweep(
     const result: ReminderSweepResult = { checked: 0, sent: 0, failed: 0, skipped: 0 };
 
     for (const beneficiary of beneficiaries) {
-      const financials = computeBeneficiaryFinancials(beneficiary, ipcRows);
+      const financials = computeBeneficiaryFinancials(
+        beneficiary,
+        ipcRows,
+        chargeableMinimum(beneficiary.event),
+      );
       if (financials.saldo <= 0) continue;
       result.checked += 1;
 

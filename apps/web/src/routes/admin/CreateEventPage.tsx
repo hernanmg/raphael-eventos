@@ -19,7 +19,8 @@ const DEFAULT_VALUES: CreateEventInput = {
   eventDate: undefined,
   titularName: undefined,
   titularEmail: '',
-  minGuests: undefined,
+  // Mínimo habitual del salón (feedback 2026-10-23); se puede cambiar.
+  minGuests: 100,
   soldByEmployeeId: undefined,
   soldAt: undefined,
   cards: CARD_TYPES.map((cardType) => ({ cardType, quantity: 0, baseValue: 0 })),
@@ -132,15 +133,18 @@ export default function CreateEventPage() {
             error={errors.eventDate?.message}
             {...register('eventDate')}
           />
-          {isEgreso && (
-            <FormField
-              label="Mínimo de invitados (opcional)"
-              type="number"
-              min={0}
-              error={errors.minGuests?.message}
-              {...register('minGuests')}
-            />
-          )}
+          <FormField
+            label={
+              isEgreso
+                ? 'Mínimo de invitados del egreso (informativo)'
+                : 'Mínimo de invitados (lo que falte se cobra a valor Adulto)'
+            }
+            type="number"
+            min={0}
+            inputMode="numeric"
+            error={errors.minGuests?.message}
+            {...register('minGuests')}
+          />
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -190,8 +194,8 @@ export default function CreateEventPage() {
               <thead className="bg-cream text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="px-4 py-2.5">Tipo</th>
-                  <th className="px-4 py-2.5">Cantidad</th>
-                  <th className="px-4 py-2.5">Valor base</th>
+                  <th className="px-4 py-2.5">Cantidad (opcional)</th>
+                  <th className="px-4 py-2.5">Valor por tarjeta</th>
                 </tr>
               </thead>
               <tbody>
@@ -202,6 +206,8 @@ export default function CreateEventPage() {
                       <input
                         type="number"
                         min={0}
+                        inputMode="numeric"
+                        aria-label={`Cantidad ${CARD_TYPE_LABELS[cardType]}`}
                         className="field-input"
                         {...register(`cards.${index}.quantity`)}
                       />
@@ -211,6 +217,8 @@ export default function CreateEventPage() {
                         type="number"
                         min={0}
                         step="0.01"
+                        inputMode="decimal"
+                        aria-label={`Valor ${CARD_TYPE_LABELS[cardType]}`}
                         className="field-input"
                         {...register(`cards.${index}.baseValue`)}
                       />
@@ -220,6 +228,13 @@ export default function CreateEventPage() {
               </tbody>
             </table>
           </div>
+          <p className="mt-2 text-xs text-muted">
+            Si todavía no saben cuántos van a ser, dejá la cantidad en 0 y cargá solo el valor: la
+            cantidad sube sola cuando registrás pagos de tarjetas. Cada tarjeta paga queda fija al
+            valor del día en que se pagó; las que faltan pagar se actualizan por IPC. Adulto,
+            adolescente y menor quedan siempre en el evento aunque estén en 0; después se completan
+            con “Ajustar”.
+          </p>
           {errors.cards?.message && (
             <p role="alert" className="mt-2 text-sm text-red-600">
               {errors.cards.message}

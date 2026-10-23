@@ -145,8 +145,9 @@ export const helpFeatures: HelpFeature[] = [
       'brindis',
     ],
     details: [
-      'El precio de las tarjetas no queda congelado: se actualiza todos los meses con la inflación oficial (IPC del INDEC). Lo que ya pagaste no cambia; lo que cambia es el valor de lo que falta pagar. Por eso conviene adelantar pagos.',
+      'El precio de las tarjetas que todavía no pagaste se actualiza todos los meses con la inflación oficial (IPC del INDEC). Las tarjetas que ya pagaste quedan fijas al valor del día en que las pagaste: no suben más. Por eso conviene adelantar pagos.',
       'La columna "Pagas" muestra cuántas tarjetas de cada tipo ya están cubiertas, cuando el salón indicó a qué tarjetas corresponde cada pago.',
+      'Si tu evento tiene un mínimo de invitados (por ejemplo 100) y todavía cargaste menos, aparece una fila "Faltan N para el mínimo": esas tarjetas se cobran a valor adulto. A medida que confirmás la cantidad real, la fila se achica.',
       'Si sos titular de un egreso (colegio o comisión), ves solo los totales del evento: lo que debe o pagó cada familia es privado.',
     ],
     steps: [
@@ -154,8 +155,8 @@ export const helpFeatures: HelpFeature[] = [
       'Arriba ves total, abonado y saldo; abajo, la tabla de tarjetas y la lista de pagos.',
     ],
     example: [
-      'Laura contrató 100 tarjetas de adulto a $20.000 en julio. En agosto la inflación fue 1,66%: el valor pasa a $20.332.',
-      'Había pagado $1.000.000 en julio: eso queda igual. Su saldo pasó de $1.000.000 a $1.033.200, porque lo pendiente se actualizó.',
+      'Laura contrató 100 tarjetas de adulto a $20.000 en julio y en julio pagó 50 ($1.000.000). En agosto la inflación fue 1,66%: las 50 impagas pasan a $20.332 cada una.',
+      'Las 50 pagas siguen valiendo $20.000. Su saldo pasó de $1.000.000 a 50 × $20.332 = $1.016.600.',
     ],
   },
   {
@@ -282,6 +283,9 @@ export const helpFeatures: HelpFeature[] = [
     ],
     details: [
       'El valor de las tarjetas que cargues queda tomado como "valor de este mes": desde ahí se actualiza solo con el IPC de cada mes siguiente.',
+      'Todo evento tiene tarjetas de adulto, adolescente y menor, aunque las dejes en 0: se completan después desde el detalle con "Ajustar". Si falta otro tipo (por ejemplo brindis), en el detalle está "+ Agregar tipo de tarjeta".',
+      'La cantidad de cada tarjeta es opcional: al firmar casi nunca saben cuántos invitados van a ser. Cargá solo el valor y dejá la cantidad en 0: sube sola cada vez que registrás un pago que cubre tarjetas.',
+      'El mínimo de invitados (100 por defecto) aplica a todos los tipos. En 15, bodas y empresariales, si las tarjetas cargadas (adultos, adolescentes y menores; el brindis no cuenta) no llegan al mínimo, lo que falta se cobra a valor adulto. En un egreso es solo informativo.',
       'El email del titular es clave: si el cliente ya tiene cuenta, el evento aparece en su portal al instante; si no, en cuanto se registre con ese email.',
       'En un egreso se carga un alumno por familia (con el email de contacto de esa familia). Los alumnos se pueden cargar a mano o importar desde Excel con la plantilla que se descarga ahí mismo.',
       '"Vendido por" indica qué empleado cerró la venta: si tiene comisión por venta, se genera sola como gasto del evento y entra en su liquidación del mes de la venta.',
@@ -290,14 +294,15 @@ export const helpFeatures: HelpFeature[] = [
       'Entrá a "Panel admin" → "Cargar evento".',
       'Elegí el tipo, poné el nombre y la fecha.',
       'Completá los datos del titular (nombre, email, teléfono).',
-      'Cargá las tarjetas: tipo, cantidad y valor de cada una.',
-      'Si es egreso: cargá los alumnos (o "Importar desde Excel") y el mínimo de invitados.',
+      'Revisá el mínimo de invitados (viene en 100).',
+      'Cargá el valor de cada tarjeta. La cantidad, si ya la saben; si no, dejala en 0.',
+      'Si es egreso: cargá los alumnos (o "Importar desde Excel").',
       'Opcional: elegí quién lo vendió y la fecha de venta.',
       'Tocá "Cargar evento".',
     ],
     example: [
-      'Cami carga "15 de Martina", 12/12/2026, titular Laura Pérez (laura@gmail.com), 100 tarjetas de adulto a $20.000 y 30 de menor a $12.000, vendido por Pao.',
-      'Resultado: total $2.360.000. Laura ya tenía cuenta, así que lo ve en su portal en el momento. A Pao se le genera la comisión en el costeo del evento.',
+      'Cami carga "15 de Martina", 12/12/2026, titular Laura Pérez (laura@gmail.com), mínimo 100, adulto a $20.000 y menor a $12.000, sin cantidades todavía, vendido por Pao.',
+      'Resultado: total $2.000.000 (los 100 del mínimo a valor adulto). Laura ya tenía cuenta, así que lo ve en su portal en el momento. A Pao se le genera la comisión en el costeo del evento.',
     ],
   },
   {
@@ -309,22 +314,25 @@ export const helpFeatures: HelpFeature[] = [
     path: '/admin',
     keywords: [
       'editar',
-      'cancelar',
       'titular',
       'ajuste',
       'renegociacion',
       'tarjetas',
       'finalizado',
+      'agregar tipo de tarjeta',
+      'menores',
     ],
     details: [
-      'Estados: "Activo" es lo normal. "Finalizado" es un evento que ya pasó (sigue ocupando su fecha en el calendario). "Cancelado" sale del calendario, de los reportes, de los recordatorios, del micrositio y de la puerta.',
+      'Estados: "Activo" es lo normal. "Finalizado" es un evento que ya pasó (sigue ocupando su fecha en el calendario). Para dar de baja un evento se usa el botón "Cancelar evento" (ver "Cancelar un evento"); desde acá solo se puede reactivar uno cancelado.',
       'Si cambiás el email del titular, el titular anterior deja de ver el evento y el nuevo lo ve (si ya tiene cuenta, al instante).',
       'Ajustar una tarjeta es distinto del IPC: es un cambio de precio o cantidad acordado con el cliente (una renegociación). El valor que pongas rige desde este mes y sigue actualizándose por IPC desde ahí. El motivo es obligatorio y queda en el historial.',
-      'No se puede bajar la cantidad por debajo de las tarjetas que ya están marcadas como pagas.',
+      'Si al evento le falta un tipo de tarjeta (por ejemplo brindis, o menores en un evento cargado antes), tocá "+ Agregar tipo de tarjeta" debajo de las tarjetas. Cantidad y valor pueden quedar en 0. En un egreso se agrega a todos los alumnos que no lo tengan.',
+      'No se puede bajar la cantidad por debajo de las tarjetas que ya están marcadas como pagas. Ajustar el valor no cambia las tarjetas ya pagas: quedan al valor al que se pagaron.',
     ],
     steps: [
       'Abrí el evento desde el panel.',
       'Para editar datos: usá la sección de edición, cambiá lo que haga falta y guardá.',
+      'Para sumar un tipo que falta: tocá "+ Agregar tipo de tarjeta", elegí el tipo, la cantidad y el valor (opcionales) y tocá "Agregar".',
       'Para ajustar una tarjeta: tocá "Ajustar" en su fila, poné la cantidad y el "valor vigente desde hoy", escribí el motivo y tocá "Guardar ajuste".',
     ],
     example: [
@@ -338,10 +346,20 @@ export const helpFeatures: HelpFeature[] = [
     purpose:
       'Registrá cada pago cobrado en persona (efectivo o transferencia) con monto, fecha y nota, y opcionalmente qué tarjetas cubre.',
     path: '/admin/eventos',
-    keywords: ['pago', 'cobro', 'abono', 'seña', 'efectivo', 'transferencia', 'asignacion'],
+    keywords: [
+      'pago',
+      'cobro',
+      'abono',
+      'seña',
+      'efectivo',
+      'transferencia',
+      'asignacion',
+      'congelada',
+    ],
     details: [
       'La plataforma no cobra: registra lo que ya cobraron. El saldo se calcula solo a partir de las tarjetas (con IPC) menos los pagos.',
-      'Indicar qué tarjetas cubre un pago es opcional. Sirve cuando querés saber cuántas unidades de cada tipo ya están pagas (típico en egresos). En un 15 donde paga una sola persona, alcanza con el monto.',
+      'Indicar qué tarjetas cubre un pago es opcional, pero conviene: cada tarjeta marcada queda fija al valor de hoy y deja de subir con el IPC. Un pago sin marcar tarjetas baja el saldo en $, pero todas las tarjetas siguen actualizándose.',
+      'Si marcás más tarjetas de las que tiene cargadas el evento (por ejemplo, la cantidad estaba en 0 porque al firmar no la sabían), la cantidad sube sola y queda registrado en el historial.',
       'Si un pago supera el tope de seña (30% del total, configurable), la app avisa pero deja registrarlo igual.',
       'Borrar un pago ("Quitar") queda registrado en la auditoría con el monto borrado.',
     ],
@@ -352,7 +370,53 @@ export const helpFeatures: HelpFeature[] = [
       'Tocá "Registrar pago".',
     ],
     example: [
-      'La familia de Tomás (egreso) paga $60.000 en efectivo por 2 adultos y 1 menor. Cami registra $60.000, marca "2 Adulto" y "1 Menor": la columna "Pagas" de esa familia pasa a "2 / 5" y "1 / 2", y su saldo baja $60.000.',
+      'La familia de Tomás (egreso) paga $60.000 en efectivo por 2 adultos y 1 menor. Cami registra $60.000, marca "2 Adulto" y "1 Menor": la columna "Pagas" de esa familia pasa a "2 / 5" y "1 / 2", y su saldo baja $60.000. Esas 3 tarjetas ya no suben con la inflación.',
+      'En los 15 de Martina las cantidades estaban en 0. Laura paga 40 adultos: Cami los marca y la cantidad de adultos pasa sola de 0 a 40.',
+    ],
+  },
+  {
+    id: 'admin-historial-tarjeta',
+    group: 'eventos',
+    title: 'Historial de una tarjeta',
+    purpose:
+      'Tocá "Pagas" (ej. 18 / 40) en la tabla de tarjetas de un evento para ver qué pagos cubren esas 18, a qué valor quedó cada una y cómo cambió el valor mes a mes.',
+    path: '/admin',
+    keywords: ['historial', 'pagas', 'valor', 'cuota', 'tarjeta', 'evolucion', 'ipc'],
+    details: [
+      'La parte de pagos lista cada pago que marcó tarjetas de ese tipo: fecha, cantidad, valor fijo por tarjeta y monto del pago.',
+      'La evolución muestra el valor al cargar el evento, el de cada mes con su IPC y los ajustes manuales con su motivo.',
+      'Arriba de la tabla de tarjetas ves con qué IPC están actualizadas y cuándo será la próxima actualización (el INDEC publica alrededor del 15 de cada mes).',
+    ],
+    steps: [
+      'Abrí el evento desde el panel.',
+      'En la tabla de tarjetas, tocá el número de la columna "Pagas".',
+      'Tocá "Cerrar" para ocultarlo.',
+    ],
+    example: [
+      'Adultos muestra "18 / 40". Fede toca y ve: 10 pagadas el 5/8 a $20.000 y 8 pagadas el 3/10 a $20.700. Las 22 que faltan valen hoy $20.950 cada una.',
+    ],
+  },
+  {
+    id: 'admin-cancelar-evento',
+    group: 'eventos',
+    title: 'Cancelar un evento',
+    purpose:
+      'Da de baja un evento cuando el cliente cancela, con el motivo y, si se le devuelve algo, el monto devuelto.',
+    path: '/admin',
+    keywords: ['cancelar', 'baja', 'devolucion', 'reintegro', 'seña'],
+    details: [
+      'Un evento cancelado sale del calendario, de los reportes, de los recordatorios, del micrositio y de la puerta, y se le quita la comisión de venta.',
+      'Los pagos quedan registrados como historial. La devolución es opcional (la seña no se devuelve): si se devuelve algo, se resta de la cobranza del mes de la baja en Reportes.',
+      'No se puede devolver más de lo cobrado. Si fue un error, el evento se puede reactivar desde "Editar evento" → Estado.',
+    ],
+    steps: [
+      'Abrí el evento desde el panel.',
+      'Tocá "Cancelar evento".',
+      'Escribí el motivo y, si corresponde, el monto devuelto.',
+      'Tocá "Confirmar baja".',
+    ],
+    example: [
+      'Un cliente llama para cancelar su boda. Había pagado $500.000 de seña más $300.000 de cuotas, y se acuerda devolverle las cuotas. Fede cancela con motivo "Cancelación del cliente por teléfono" y devolución $300.000: el evento muestra "Cobrado $800.000 · Devuelto $300.000 · Quedó para el salón $500.000".',
     ],
   },
   {
@@ -396,17 +460,19 @@ export const helpFeatures: HelpFeature[] = [
       'Arriba ves la inflación del último mes publicado (ej. agosto 2026: +1,66%), el acumulado en lo que va del año y el de los últimos 12 meses. Debajo, un gráfico con la variación de cada mes y el historial completo.',
       'Cada tarjeta guarda su valor y el mes en que se cargó. Todos los meses posteriores se le suma la inflación de ese mes, una sobre la otra: lo que ya se pagó no cambia, sube lo que falta pagar.',
       'Todos los días a las 8:00 la app consulta datos.gob.ar. El INDEC publica alrededor del 14 de cada mes, así que el dato suele entrar el 15. Si el día 16 todavía no entró, aparece un aviso acá y en el dashboard. Mientras tanto las tarjetas siguen con el último mes cargado: nada se rompe.',
+      'Al corregir o borrar un mes cargado a mano se recalculan solos los meses siguientes y el valor de las tarjetas impagas. Las tarjetas ya pagas no cambian.',
       'Para hacer la cuenta la app encadena las variaciones en un índice interno que arrancó en 100. Si alguna vez hace falta explicar un valor a mano, está en "Ver índice técnico", al final de la pantalla.',
     ],
     steps: [
       'Entrá a "Panel admin" → "Estado del IPC" para ver la inflación del último mes, el acumulado y el historial.',
       'Solo si aparece el aviso: buscá en el INDEC el % de variación del mes que falta.',
-      'En "Cargar un mes a mano" elegí cualquier día de ese mes, poné el % y tocá "Cargar mes". Si el mes ya estaba cargado, se reemplaza.',
+      'En "Cargar un mes a mano" elegí cualquier día de ese mes, poné el % y tocá "Cargar mes".',
+      'Si te equivocaste: en el historial, tocá "Corregir" en ese mes, cambiá el % y guardá, o tocá "Borrar mes". Solo se pueden corregir los meses cargados a mano.',
     ],
     example: [
       'Una tarjeta de $50.000 cargada en julio 2026. Agosto da +1,66%: pasa a valer 50.000 × 1,0166 = $50.830. Si septiembre da +2%: 50.830 × 1,02 = $51.847.',
       'Una tarjeta cargada en agosto no cambia con el dato de agosto: se ajusta recién con septiembre.',
-      'Carga a mano: si el 16 de octubre sigue el aviso, Fede elige un día de septiembre 2026, pone el % que publicó el INDEC (ej. 2) y guarda.',
+      'Carga a mano: si el 16 de octubre sigue el aviso, Fede elige un día de septiembre 2026, pone el % que publicó el INDEC (ej. 2) y guarda. Si en vez de 2 puso 20, toca "Corregir" en septiembre y lo cambia a 2.',
     ],
   },
   {
@@ -619,7 +685,7 @@ export const helpFeatures: HelpFeature[] = [
     path: '/admin/gastos',
     keywords: ['gastos', 'ticket', 'factura', 'compras', 'proveedor', 'rubro', 'costeo', 'pro'],
     details: [
-      'Un gasto va contra un evento (lo que se compró para ese evento) o contra un mes del salón (luz, gas, sueldos). Los del evento suman a su costeo; los del mes se reparten entre los eventos de ese mes.',
+      'Un gasto va contra un evento (lo que se compró para ese evento), contra un mes del salón (luz, gas, sueldos) o es una compra para stock. Los del evento suman a su costeo; los del mes se reparten entre los eventos de ese mes; los de stock esperan a que los asignes (ver "Compras para stock").',
       'Los ítems son opcionales: producto, presentación (x6, 5L…), cantidad, unidad y precio. Si cargás ítems, el monto es la suma. Si no, ponés el total directamente.',
       'La foto o PDF del ticket es solo respaldo: no se lee automáticamente.',
       'Algunos gastos se crean solos: lo que cobra un empleado por evento trabajado (al asignarlo), las comisiones de venta y las liquidaciones del mes.',
@@ -633,6 +699,28 @@ export const helpFeatures: HelpFeature[] = [
     example: [
       'Fede compra en Macro para el 15 de Martina: 10 cajas de gaseosa x6 a $9.000 y 5 bidones de jugo de 5L a $4.500. Elige el evento, rubro Macro, proveedor Macro, carga los 2 ítems (total $112.500) y saca foto al ticket.',
       'Al pie de "Gastos" de octubre, Macro suma $112.500 más, y el costeo de los 15 de Martina sube esa cifra.',
+    ],
+  },
+  {
+    id: 'admin-stock',
+    group: 'costeo',
+    title: 'Compras para stock (Plan Pro)',
+    purpose:
+      'Para lo que se compra a futuro (ej. carne en oferta) sin un evento ni un mes definido: queda en stock y, cuando se usa, se asigna a un evento todo o una parte.',
+    path: '/admin/gastos',
+    keywords: ['stock', 'deposito', 'oferta', 'a futuro', 'compra', 'asignar', 'carne'],
+    details: [
+      'Una compra para stock no cuenta en el costeo de ningún evento ni se prorratea en ningún mes hasta que la asignás.',
+      'Al asignar, elegís el evento y cuánto (en $) se usó. Queda como un gasto de ese evento, con el mismo rubro y proveedor, marcado "del stock". Lo que no asignaste sigue disponible.',
+      'Si te equivocaste de evento, quitá ese gasto del evento: el monto vuelve al stock. Una compra que ya tiene partes asignadas no se puede borrar ni bajar por debajo de lo usado.',
+    ],
+    steps: [
+      'En "Gastos", tocá "+ Cargar gasto" y elegí "Compra para stock". Completá rubro, proveedor, monto (o ítems) y ticket.',
+      'Cuando la uses, bajá hasta "Stock" en la misma pantalla y tocá "Asignar a un evento".',
+      'Elegí el evento, poné el monto usado y tocá "Asignar".',
+    ],
+    example: [
+      'Fede compra 40 kg de vacío en oferta por $400.000 sin saber para qué evento. Lo carga como compra para stock. En diciembre usa la mitad en los 15 de Martina: asigna $200.000 a ese evento y el stock muestra "Queda $200.000".',
     ],
   },
   {

@@ -94,3 +94,41 @@ export function formatPeriodMonth(iso: string): string {
 export function formatPeriodShort(iso: string): string {
   return shortMonthFormatter.format(new Date(iso)).replace('.', '');
 }
+
+function addMonths(iso: string, months: number): string {
+  const d = new Date(iso);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + months, 1)).toISOString();
+}
+
+/**
+ * Cuándo cambia el valor de las tarjetas impagas (feedback 2026-10-23: "no sé
+ * si se actualizó la cuota"). El IPC de un mes se publica ~el 15 del mes
+ * siguiente. Una tarjeta cargada (o ajustada) en un mes queda a precios de ese
+ * mes: empieza a moverse con el IPC del mes siguiente — mismo criterio que
+ * indexFactor en la API.
+ */
+export function ipcUpdateNote(
+  latestIpcPeriod: string | null,
+  cardBasePeriods: string[],
+): { current: string; next: string; notYet: string | null } {
+  if (!latestIpcPeriod) {
+    return {
+      current: 'Todavía no hay IPC cargado: las tarjetas valen lo que se cargó.',
+      next: '',
+      notYet: null,
+    };
+  }
+  const nextPeriod = addMonths(latestIpcPeriod, 1);
+  const latest = new Date(latestIpcPeriod).getTime();
+  const pending = cardBasePeriods
+    .filter((p) => new Date(p).getTime() >= latest)
+    .sort()
+    .at(-1);
+  return {
+    current: `Valores actualizados con el IPC de ${formatPeriod(latestIpcPeriod)}.`,
+    next: `Próxima actualización: cuando se publique el IPC de ${formatPeriodMonth(nextPeriod)} (alrededor del 15 de ${formatPeriodMonth(addMonths(latestIpcPeriod, 2))}).`,
+    notYet: pending
+      ? `Las tarjetas cargadas o ajustadas en ${formatPeriod(pending)} están a precios de ese mes: empiezan a actualizarse con el IPC de ${formatPeriodMonth(addMonths(pending, 1))}.`
+      : null,
+  };
+}

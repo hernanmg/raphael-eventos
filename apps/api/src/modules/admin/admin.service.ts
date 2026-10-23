@@ -1,9 +1,14 @@
+import { BASE_CARD_TYPES } from '@raphael-eventos/shared';
 import type {
+  AddCardTypeInput,
   AdminEventDetail,
   BeneficiaryReport,
   ClientDetail,
   ClientListItem,
+  CancelEventInput,
   CardAdjustmentInput,
+  CardHistory,
+  CardValuePoint,
   CreateEventInput,
   CreateIpcEntryInput,
   DashboardSummary,
@@ -11,16 +16,22 @@ import type {
   RecordPaymentInput,
   RecordPaymentResult,
   UpdateEventInput,
+  UpdateIpcEntryInput,
 } from '@raphael-eventos/shared';
-import type { Prisma } from '@prisma/client';
+import type { CardType as CardTypeValue, Prisma } from '@prisma/client';
 import { withTenant } from '../../db/withTenant';
 import { audit, diffFields, money, snapshot } from '../../lib/audit';
 import { generateTemporaryPassword, hashPassword } from '../../lib/password';
 import { syncSaleCommission } from '../staff/staff.service';
 import {
+  chargeableMinimum,
   computeAggregateFinancials,
   computeBeneficiaryFinancials,
+  currentUnitValue,
+  paidByType,
+  serializeCard,
   serializePayment,
+  type IpcRow,
 } from '../../lib/financials';
 
 export class EventNotFoundError extends Error {}
@@ -29,6 +40,9 @@ export class InvalidAllocationError extends Error {}
 export class ClientNotFoundError extends Error {}
 export class CardNotFoundError extends Error {}
 export class InvalidCardAdjustmentError extends Error {}
+export class InvalidCancellationError extends Error {}
+export class IpcEntryNotFoundError extends Error {}
+export class IpcEntryNotEditableError extends Error {}
 
 function firstOfCurrentMonth(): Date {
   const now = new Date();
@@ -47,8 +61,19 @@ async function createCardsForBeneficiary(
   cards: CreateEventInput['cards'],
   basePeriod: Date,
 ) {
-  for (const card of cards) {
-    if (card.quantity <= 0) continue;
+  // Adulto/adolescente/menor existen siempre, aunque vengan en 0 o no vengan
+  // (feedback 2026-10-23): se completan después con "Ajustar".
+  const all = [
+    ...cards,
+    ...BASE_CARD_TYPES.filter((type) => !cards.some((c) => c.cardType === type)).map(
+      (cardType) => ({ cardType, quantity: 0, baseValue: 0 }),
+    ),
+  ];
+  for (const card of all) {
+    // Cantidad 0 con valor cargado sí se crea: la cantidad sube sola al
+    // asignar pagos. Brindis sin cantidad ni valor no aplica.
+    const isBase = (BASE_CARD_TYPES as readonly string[]).includes(card.cardType);
+    if (!isBase && card.quantity <= 0 && card.baseValue <= 0) continue;
     await tx.eventCard.create({
       data: {
         tenantId,
@@ -123,7 +148,7 @@ export async function createEvent(tenantId: string, adminUserId: string, input: 
         eventDate: input.eventDate ? new Date(input.eventDate) : null,
         titularName: input.titularName ?? null,
         titularEmail: input.titularEmail,
-        minGuests: input.type === 'EGRESO' ? (input.minGuests ?? null) : null,
+        minGuests: input.minGuests ?? null,
         soldByEmployeeId: await assertSeller(tx, tenantId, input.soldByEmployeeId),
         soldAt: input.soldByEmployeeId
           ? input.soldAt
@@ -190,7 +215,7 @@ export async function createEvent(tenantId: string, adminUserId: string, input: 
           'minGuests',
         ]),
         tarjetas: input.cards
-          .filter((card) => card.quantity > 0)
+          .filter((card) => card.quantity > 0 || card.baseValue > 0)
           .map((card) => ({
             tipo: card.cardType,
             cantidad: card.quantity,
@@ -224,14 +249,22 @@ export async function updateEvent(tenantId: string, eventId: string, input: Upda
     });
     if (!before || before.tenantId !== tenantId) throw new EventNotFoundError();
 
+    const reactivated = before.status === 'CANCELADO' && input.status !== 'CANCELADO';
     const data = {
       name: input.name,
       eventDate: input.eventDate ? new Date(input.eventDate) : null,
       titularName: input.titularName ?? null,
       titularEmail: input.titularEmail,
       titularPhone: input.titularPhone ?? null,
-      minGuests: before.type === 'EGRESO' ? (input.minGuests ?? null) : null,
+      minGuests: input.minGuests ?? null,
       status: input.status,
+      // Reactivar un cancelado limpia la baja (queda en la auditoría). Cancelar
+      // desde acá (sin motivo) sigue andando, pero la UI usa cancelEvent.
+      ...(reactivated
+        ? { cancelledAt: null, cancellationReason: null, refundAmount: null }
+        : before.status !== 'CANCELADO' && input.status === 'CANCELADO'
+          ? { cancelledAt: new Date() }
+          : {}),
       soldByEmployeeId: await assertSeller(tx, tenantId, input.soldByEmployeeId),
       soldAt: input.soldByEmployeeId
         ? input.soldAt
@@ -249,6 +282,9 @@ export async function updateEvent(tenantId: string, eventId: string, input: Upda
       'status',
       'soldByEmployeeId',
       'soldAt',
+      'cancelledAt',
+      'cancellationReason',
+      'refundAmount',
     ]);
     if (!changes) return before;
 
@@ -284,6 +320,112 @@ export async function updateEvent(tenantId: string, eventId: string, input: Upda
       changes,
     });
     return event;
+  });
+}
+
+/**
+ * Baja de un evento (feedback 2026-10-23: un cliente llamó cancelando y no
+ * había forma visible de darlo de baja). Mismo efecto que pasar el estado a
+ * CANCELADO (sale de calendario, reportes, micrositio, check-in,
+ * recordatorios y comisión) + motivo y monto devuelto opcional. Los pagos no
+ * se tocan: quedan como historial, y la cobranza de reportes resta la
+ * devolución en el mes de la baja.
+ */
+export async function cancelEvent(tenantId: string, eventId: string, input: CancelEventInput) {
+  return withTenant(tenantId, async (tx) => {
+    const before = await tx.event.findUnique({
+      where: { id: eventId },
+      include: { beneficiaries: { include: { payments: { select: { amount: true } } } } },
+    });
+    if (!before || before.tenantId !== tenantId) throw new EventNotFoundError();
+    if (before.status === 'CANCELADO') {
+      throw new InvalidCancellationError('El evento ya está cancelado');
+    }
+    const totalPaid = before.beneficiaries
+      .flatMap((b) => b.payments)
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+    const refundAmount = input.refundAmount ?? 0;
+    if (refundAmount > totalPaid + 0.005) {
+      throw new InvalidCancellationError(
+        `La devolución no puede superar lo cobrado (${money(totalPaid)})`,
+      );
+    }
+
+    const event = await tx.event.update({
+      where: { id: eventId },
+      data: {
+        status: 'CANCELADO',
+        cancelledAt: new Date(),
+        cancellationReason: input.reason,
+        refundAmount: refundAmount > 0 ? refundAmount : null,
+      },
+    });
+    await syncSaleCommission(tx, tenantId, eventId);
+
+    await audit(tx, tenantId, {
+      entityType: 'Event',
+      entityId: eventId,
+      eventId,
+      action: 'UPDATE',
+      summary: `Baja del evento "${event.name}": ${input.reason}${refundAmount > 0 ? ` (devolución ${money(refundAmount)})` : ''}`,
+      changes: {
+        status: { de: before.status, a: 'CANCELADO' },
+        motivo: input.reason,
+        cobrado: Number(totalPaid.toFixed(2)),
+        devolucion: refundAmount,
+      },
+    });
+    return event;
+  });
+}
+
+/**
+ * "Agregar tipo de tarjeta" a un evento ya creado (feedback 2026-10-23: el
+ * evento real se había creado sin Menores). Se agrega a cada beneficiary que
+ * no lo tenga (en egreso, a todos los alumnos con la misma cantidad y valor),
+ * con período base = mes actual.
+ */
+export async function addCardType(tenantId: string, eventId: string, input: AddCardTypeInput) {
+  return withTenant(tenantId, async (tx) => {
+    const event = await tx.event.findUnique({
+      where: { id: eventId },
+      include: { beneficiaries: { include: { cards: { select: { cardType: true } } } } },
+    });
+    if (!event || event.tenantId !== tenantId) throw new EventNotFoundError();
+    const missing = event.beneficiaries.filter(
+      (b) => !b.cards.some((c) => c.cardType === input.cardType),
+    );
+    if (missing.length === 0) {
+      throw new InvalidCardAdjustmentError('El evento ya tiene ese tipo de tarjeta');
+    }
+
+    const basePeriod = firstOfCurrentMonth();
+    for (const beneficiary of missing) {
+      const card = await tx.eventCard.create({
+        data: {
+          tenantId,
+          beneficiaryId: beneficiary.id,
+          cardType: input.cardType,
+          quantity: input.quantity,
+          baseValue: input.unitValue,
+          basePeriod,
+        },
+      });
+      const who = beneficiary.label ? ` (${beneficiary.label})` : '';
+      await audit(tx, tenantId, {
+        entityType: 'EventCard',
+        entityId: card.id,
+        eventId,
+        action: 'CREATE',
+        summary: `Tipo de tarjeta agregado: ${input.cardType}${who}`,
+        changes: {
+          cantidad: { de: null, a: input.quantity },
+          valorBase: { de: null, a: input.unitValue },
+          periodoBase: { de: null, a: basePeriod.toISOString() },
+        },
+      });
+    }
+    return { added: missing.length };
   });
 }
 
@@ -359,6 +501,105 @@ export async function adjustCard(
   });
 }
 
+/**
+ * Historial de una tarjeta (feedback 2026-10-23: click en "Pagas 18/40"):
+ * qué pagos cubrieron esas 18 y a qué valor quedaron congeladas, y cómo fue
+ * cambiando el valor unitario — alta, cada IPC y cada ajuste manual que
+ * cambió el valor (los aumentos automáticos de cantidad no cambian el valor
+ * y no aparecen acá). Se reconstruye de IpcIndexValue + EventCardAdjustment:
+ * no hay una tabla de valores guardados.
+ */
+export async function getCardHistory(tenantId: string, cardId: string): Promise<CardHistory> {
+  return withTenant(tenantId, async (tx) => {
+    const card = await tx.eventCard.findUnique({
+      where: { id: cardId },
+      include: {
+        adjustments: { orderBy: { createdAt: 'asc' } },
+        beneficiary: {
+          include: {
+            payments: { include: { allocations: true }, orderBy: { paymentDate: 'asc' } },
+          },
+        },
+      },
+    });
+    if (!card || card.tenantId !== tenantId) throw new CardNotFoundError();
+    const ipcRows = await tx.ipcIndexValue.findMany({
+      where: { tenantId },
+      orderBy: { period: 'asc' },
+    });
+
+    const payments = card.beneficiary.payments;
+    const summary = serializeCard(card, ipcRows, paidByType(payments).get(card.cardType));
+    const allocations = payments.flatMap((payment) =>
+      payment.allocations
+        .filter((a) => a.cardType === card.cardType)
+        .map((a) => ({
+          paymentId: payment.id,
+          paymentDate: payment.paymentDate.toISOString(),
+          paymentAmount: Number(payment.amount),
+          note: payment.note,
+          quantity: a.quantity,
+          unitValue: Number(a.unitValue),
+          subtotal: Number((a.quantity * Number(a.unitValue)).toFixed(2)),
+        })),
+    );
+
+    // Tramos de valor: el original y uno por cada ajuste que lo re-basó.
+    const valueAdjustments = card.adjustments.filter(
+      (a) =>
+        !a.previousBaseValue.equals(a.newBaseValue) ||
+        a.previousBasePeriod.getTime() !== a.newBasePeriod.getTime(),
+    );
+    const segments = [
+      {
+        baseValue: Number(valueAdjustments[0]?.previousBaseValue ?? card.baseValue),
+        basePeriod: valueAdjustments[0]?.previousBasePeriod ?? card.basePeriod,
+        kind: 'ALTA' as const,
+        reason: null as string | null,
+      },
+      ...valueAdjustments.map((a) => ({
+        baseValue: Number(a.newBaseValue),
+        basePeriod: a.newBasePeriod,
+        kind: 'AJUSTE' as const,
+        reason: a.reason,
+      })),
+    ];
+
+    const valueHistory: CardValuePoint[] = [];
+    segments.forEach((segment, i) => {
+      valueHistory.push({
+        period: segment.basePeriod.toISOString(),
+        unitValue: segment.baseValue,
+        kind: segment.kind,
+        variationPct: null,
+        reason: segment.reason,
+      });
+      const until = segments[i + 1]?.basePeriod;
+      // Un IPC de un mes posterior al período base es el que mueve el valor
+      // (mismo criterio que indexFactor).
+      for (const row of ipcRows) {
+        if (row.period.getTime() <= segment.basePeriod.getTime()) continue;
+        if (until && row.period.getTime() >= until.getTime()) break;
+        const rowsSoFar: IpcRow[] = ipcRows.filter(
+          (r) => r.period.getTime() <= row.period.getTime(),
+        );
+        valueHistory.push({
+          period: row.period.toISOString(),
+          unitValue: currentUnitValue(
+            { ...card, baseValue: segment.baseValue, basePeriod: segment.basePeriod },
+            rowsSoFar,
+          ),
+          kind: 'IPC',
+          variationPct: Number(row.sourceLatestValue),
+          reason: null,
+        });
+      }
+    });
+
+    return { card: summary, allocations: allocations.reverse(), valueHistory };
+  });
+}
+
 export async function getDashboard(tenantId: string): Promise<DashboardSummary> {
   return withTenant(tenantId, async (tx) => {
     const events = await tx.event.findMany({ where: { tenantId }, orderBy: { eventDate: 'asc' } });
@@ -414,8 +655,9 @@ export async function getEventDetailForAdmin(
 
     let totalValue = 0;
     let totalPaid = 0;
+    const minGuests = chargeableMinimum(event);
     const beneficiaryDetails = beneficiaries.map((beneficiary) => {
-      const financials = computeBeneficiaryFinancials(beneficiary, ipcRows);
+      const financials = computeBeneficiaryFinancials(beneficiary, ipcRows, minGuests);
       totalValue += financials.totalValue;
       totalPaid += financials.totalPaid;
       return {
@@ -445,6 +687,10 @@ export async function getEventDetailForAdmin(
       soldByEmployeeId: event.soldByEmployeeId,
       soldByEmployeeName: event.soldByEmployee?.fullName ?? null,
       soldAt: event.soldAt?.toISOString() ?? null,
+      cancelledAt: event.cancelledAt?.toISOString() ?? null,
+      cancellationReason: event.cancellationReason,
+      refundAmount: event.refundAmount === null ? null : Number(event.refundAmount),
+      latestIpcPeriod: ipcRows.at(-1)?.period.toISOString() ?? null,
       beneficiaries: beneficiaryDetails,
       totals: {
         totalValue,
@@ -541,6 +787,10 @@ export async function addIpcEntry(
       include: { triggeredBy: { select: { fullName: true } } },
     });
 
+    // Cargar un mes que no es el último (o re-cargarlo) cambia la base de los
+    // meses siguientes: sin esto quedaban encadenados sobre el valor viejo.
+    const recalculated = await rechainIpcAfter(tx, tenantId, period);
+
     await audit(tx, tenantId, {
       entityType: 'IpcIndexValue',
       entityId: row.id,
@@ -553,18 +803,148 @@ export async function addIpcEntry(
         indiceAnterior: baseIndex,
         indiceResultante: indexValue,
         origen: 'MANUAL',
+        mesesRecalculados: recalculated,
       },
     });
 
-    return {
-      id: row.id,
-      period: row.period.toISOString(),
-      indexValue: Number(row.indexValue),
-      sourcePreviousValue: Number(row.sourcePreviousValue),
-      sourceLatestValue: Number(row.sourceLatestValue),
-      fetchedAt: row.fetchedAt.toISOString(),
-      triggeredByName: row.triggeredBy?.fullName ?? null,
-    };
+    return serializeIpcRow(row);
+  });
+}
+
+function serializeIpcRow(row: {
+  id: string;
+  period: Date;
+  indexValue: Prisma.Decimal;
+  sourcePreviousValue: Prisma.Decimal;
+  sourceLatestValue: Prisma.Decimal;
+  fetchedAt: Date;
+  triggeredBy?: { fullName: string } | null;
+}): IpcHistoryEntry {
+  return {
+    id: row.id,
+    period: row.period.toISOString(),
+    indexValue: Number(row.indexValue),
+    sourcePreviousValue: Number(row.sourcePreviousValue),
+    sourceLatestValue: Number(row.sourceLatestValue),
+    fetchedAt: row.fetchedAt.toISOString(),
+    triggeredByName: row.triggeredBy?.fullName ?? null,
+  };
+}
+
+/**
+ * Re-encadena los índices de los meses POSTERIORES a `period` con la misma
+ * regla que el cron y la carga manual: `índice(m) = índice(mes anterior
+ * guardado) × (1 + variación(m)/100)`. El primer mes del tenant es el ancla y
+ * no se toca (solo importa la proporción entre índices). Las tarjetas pagas no
+ * se ven afectadas: su valor está congelado en la asignación del pago.
+ * Devuelve cuántos meses cambiaron.
+ */
+async function rechainIpcAfter(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  period: Date,
+): Promise<number> {
+  const rows = await tx.ipcIndexValue.findMany({ where: { tenantId }, orderBy: { period: 'asc' } });
+  let changed = 0;
+  // Índice del mes anterior ya corregido: cada mes encadena sobre ese valor.
+  let previousIndex = rows.length ? Number(rows[0]!.indexValue) : 0;
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i]!;
+    const previousVariation = Number(rows[i - 1]!.sourceLatestValue);
+    if (row.period.getTime() <= period.getTime()) {
+      previousIndex = Number(row.indexValue);
+      continue;
+    }
+    const indexValue = Number(
+      (previousIndex * (1 + Number(row.sourceLatestValue) / 100)).toFixed(6),
+    );
+    if (Math.abs(Number(row.indexValue) - indexValue) > 1e-6) {
+      await tx.ipcIndexValue.update({
+        where: { id: row.id },
+        data: { indexValue, sourcePreviousValue: previousVariation },
+      });
+      changed += 1;
+    }
+    previousIndex = indexValue;
+  }
+  return changed;
+}
+
+async function findManualIpcRow(tx: Prisma.TransactionClient, tenantId: string, id: string) {
+  const row = await tx.ipcIndexValue.findUnique({ where: { id } });
+  if (!row || row.tenantId !== tenantId) throw new IpcEntryNotFoundError();
+  // Lo traído de datos.gob.ar (cron o backfill) es el dato oficial del INDEC:
+  // solo se corrige lo que cargó una persona.
+  if (!row.triggeredById) throw new IpcEntryNotEditableError();
+  return row;
+}
+
+/**
+ * Corrección de un mes cargado a mano (feedback 2026-10-23: "si me equivoco
+ * queda fijo"). Recalcula el índice del mes y re-encadena los siguientes.
+ */
+export async function updateIpcEntry(
+  tenantId: string,
+  adminUserId: string,
+  id: string,
+  input: UpdateIpcEntryInput,
+): Promise<IpcHistoryEntry> {
+  return withTenant(tenantId, async (tx) => {
+    const before = await findManualIpcRow(tx, tenantId, id);
+    const previousRow = await tx.ipcIndexValue.findFirst({
+      where: { tenantId, period: { lt: before.period } },
+      orderBy: { period: 'desc' },
+    });
+    // Sin mes anterior es el ancla de la cadena: el índice no cambia.
+    const indexValue = previousRow
+      ? Number((Number(previousRow.indexValue) * (1 + input.variationPct / 100)).toFixed(6))
+      : Number(before.indexValue);
+    const row = await tx.ipcIndexValue.update({
+      where: { id },
+      data: {
+        indexValue,
+        sourceLatestValue: input.variationPct,
+        triggeredById: adminUserId,
+        fetchedAt: new Date(),
+      },
+      include: { triggeredBy: { select: { fullName: true } } },
+    });
+    const recalculated = await rechainIpcAfter(tx, tenantId, before.period);
+
+    await audit(tx, tenantId, {
+      entityType: 'IpcIndexValue',
+      entityId: id,
+      action: 'UPDATE',
+      summary: `Corrección del IPC de ${before.period.toISOString().slice(0, 7)}: ${Number(before.sourceLatestValue)}% → ${input.variationPct}%`,
+      changes: {
+        periodo: before.period.toISOString(),
+        variacionPct: { de: Number(before.sourceLatestValue), a: input.variationPct },
+        indice: { de: Number(before.indexValue), a: indexValue },
+        mesesRecalculados: recalculated,
+      },
+    });
+    return serializeIpcRow(row);
+  });
+}
+
+/** Baja de un mes cargado a mano (ej. se cargó en el mes equivocado). */
+export async function deleteIpcEntry(tenantId: string, id: string): Promise<void> {
+  return withTenant(tenantId, async (tx) => {
+    const row = await findManualIpcRow(tx, tenantId, id);
+    await tx.ipcIndexValue.delete({ where: { id } });
+    const recalculated = await rechainIpcAfter(tx, tenantId, row.period);
+    await audit(tx, tenantId, {
+      entityType: 'IpcIndexValue',
+      entityId: id,
+      action: 'DELETE',
+      summary: `Baja del IPC cargado a mano de ${row.period.toISOString().slice(0, 7)} (${Number(row.sourceLatestValue)}%)`,
+      changes: {
+        periodo: row.period.toISOString(),
+        variacionPct: Number(row.sourceLatestValue),
+        indice: Number(row.indexValue),
+        mesesRecalculados: recalculated,
+      },
+    });
   });
 }
 
@@ -575,9 +955,12 @@ export async function addIpcEntry(
  * alta — hueco real encontrado probando la app).
  *
  * `input.allocations` es opcional (ver CLAUDE.md "Fase 2 — asignación de
- * pagos"): si viene, cada línea se valida contra lo que falta pagar de ese
- * tipo de tarjeta (cantidad total menos lo ya asignado en pagos previos) —
- * no deja marcar como pagas más unidades de las que existen.
+ * pagos"). Desde el feedback 2026-10-23:
+ *  - cada tarjeta asignada queda CONGELADA al valor vigente hoy
+ *    (`PaymentCardAllocation.unitValue`): deja de indexar por IPC;
+ *  - si se asignan más unidades de las cargadas, la cantidad de la tarjeta
+ *    sube sola (al firmar no saben cuántos invitados van a tener) — queda un
+ *    EventCardAdjustment con el motivo, sin re-basar el valor.
  */
 export async function recordPayment(
   tenantId: string,
@@ -588,42 +971,66 @@ export async function recordPayment(
   return withTenant(tenantId, async (tx) => {
     const beneficiary = await tx.eventBeneficiary.findUnique({
       where: { id: beneficiaryId },
-      include: { cards: true, payments: { include: { allocations: true } } },
+      include: {
+        cards: true,
+        payments: { include: { allocations: true } },
+        event: { select: { type: true, minGuests: true } },
+      },
     });
     if (!beneficiary || beneficiary.tenantId !== tenantId) {
       throw new BeneficiaryNotFoundError();
-    }
-
-    if (input.allocations.length > 0) {
-      const remainingByType = new Map(
-        beneficiary.cards.map((card) => [card.cardType, card.quantity]),
-      );
-      for (const payment of beneficiary.payments) {
-        for (const allocation of payment.allocations) {
-          remainingByType.set(
-            allocation.cardType,
-            (remainingByType.get(allocation.cardType) ?? 0) - allocation.quantity,
-          );
-        }
-      }
-      for (const allocation of input.allocations) {
-        const remaining = remainingByType.get(allocation.cardType) ?? 0;
-        if (allocation.quantity > remaining) {
-          throw new InvalidAllocationError(
-            `Ya están pagas o no existen esa cantidad de tarjetas ${allocation.cardType} — quedan ${Math.max(remaining, 0)} sin asignar`,
-          );
-        }
-        remainingByType.set(allocation.cardType, remaining - allocation.quantity);
-      }
     }
 
     const ipcRows = await tx.ipcIndexValue.findMany({
       where: { tenantId },
       orderBy: { period: 'asc' },
     });
+
+    const paid = paidByType(beneficiary.payments);
+    const allocationRows: { cardType: CardTypeValue; quantity: number; unitValue: number }[] = [];
+    const quantityRaises: { cardType: string; de: number; a: number }[] = [];
+    for (const allocation of input.allocations) {
+      const card = beneficiary.cards.find((c) => c.cardType === allocation.cardType);
+      const unitValue = card ? currentUnitValue(card, ipcRows) : 0;
+      if (!card || unitValue <= 0) {
+        throw new InvalidAllocationError(
+          `El evento no tiene valor cargado para la tarjeta ${allocation.cardType} — cargalo con "Ajustar" antes de asignarle pagos`,
+        );
+      }
+      const paidUnits = (paid.get(card.cardType)?.quantity ?? 0) + allocation.quantity;
+      paid.set(card.cardType, { quantity: paidUnits, value: 0 });
+      if (paidUnits > card.quantity) {
+        await tx.eventCardAdjustment.create({
+          data: {
+            tenantId,
+            cardId: card.id,
+            previousQuantity: card.quantity,
+            newQuantity: paidUnits,
+            previousBaseValue: card.baseValue,
+            newBaseValue: card.baseValue,
+            previousBasePeriod: card.basePeriod,
+            newBasePeriod: card.basePeriod,
+            reason: 'Aumento automático de cantidad al asignar un pago',
+            createdById: adminUserId,
+          },
+        });
+        await tx.eventCard.update({ where: { id: card.id }, data: { quantity: paidUnits } });
+        quantityRaises.push({ cardType: card.cardType, de: card.quantity, a: paidUnits });
+        card.quantity = paidUnits;
+      }
+      allocationRows.push({
+        cardType: allocation.cardType,
+        quantity: allocation.quantity,
+        unitValue,
+      });
+    }
+
+    // Con las cantidades ya actualizadas: el aviso de tope de seña compara
+    // contra el total que queda después de sumar las tarjetas nuevas.
     const { totalValue, totalPaid: paidBefore } = computeBeneficiaryFinancials(
       beneficiary,
       ipcRows,
+      chargeableMinimum(beneficiary.event),
     );
 
     const row = await tx.payment.create({
@@ -637,14 +1044,9 @@ export async function recordPayment(
       },
     });
 
-    if (input.allocations.length > 0) {
+    if (allocationRows.length > 0) {
       await tx.paymentCardAllocation.createMany({
-        data: input.allocations.map((allocation) => ({
-          tenantId,
-          paymentId: row.id,
-          cardType: allocation.cardType,
-          quantity: allocation.quantity,
-        })),
+        data: allocationRows.map((allocation) => ({ tenantId, paymentId: row.id, ...allocation })),
       });
     }
 
@@ -664,16 +1066,14 @@ export async function recordPayment(
         monto: Number(row.amount),
         fecha: row.paymentDate.toISOString(),
         nota: row.note,
-        tarjetas: input.allocations,
+        tarjetas: allocationRows,
+        ...(quantityRaises.length > 0 ? { cantidadAumentada: quantityRaises } : {}),
         avisoTopeSena: advanceDepositWarning,
       },
     });
 
     return {
-      payment: serializePayment({
-        ...row,
-        allocations: input.allocations,
-      }),
+      payment: serializePayment({ ...row, allocations: allocationRows }),
       advanceDepositWarning,
     };
   });
@@ -703,7 +1103,11 @@ export async function deletePayment(tenantId: string, paymentId: string): Promis
         monto: Number(payment.amount),
         fecha: payment.paymentDate.toISOString(),
         nota: payment.note,
-        tarjetas: payment.allocations.map((a) => ({ cardType: a.cardType, quantity: a.quantity })),
+        tarjetas: payment.allocations.map((a) => ({
+          cardType: a.cardType,
+          quantity: a.quantity,
+          unitValue: Number(a.unitValue),
+        })),
       },
     });
   });
@@ -735,13 +1139,18 @@ export async function getBeneficiaryReport(
       where: { tenantId },
       orderBy: { period: 'asc' },
     });
-    const financials = computeBeneficiaryFinancials(beneficiary, ipcRows);
+    const financials = computeBeneficiaryFinancials(
+      beneficiary,
+      ipcRows,
+      chargeableMinimum(beneficiary.event),
+    );
 
     return {
       eventName: beneficiary.event.name,
       eventType: beneficiary.event.type,
       beneficiaryLabel: beneficiary.label,
       cards: financials.cards,
+      minimumCharge: financials.minimumCharge,
       payments: beneficiary.payments.map(serializePayment),
       totalValue: financials.totalValue,
       totalPaid: financials.totalPaid,
@@ -830,7 +1239,11 @@ export async function getClientDetail(tenantId: string, userId: string): Promise
             where: { id: account.beneficiaryId },
             include: { cards: true, payments: { include: { allocations: true } } },
           });
-          const financials = computeBeneficiaryFinancials(beneficiary, ipcRows);
+          const financials = computeBeneficiaryFinancials(
+            beneficiary,
+            ipcRows,
+            chargeableMinimum(account.event),
+          );
           return {
             eventAccountId: account.id,
             eventId: account.event.id,

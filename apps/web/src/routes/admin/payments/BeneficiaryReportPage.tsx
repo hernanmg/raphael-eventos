@@ -1,3 +1,4 @@
+import { MinimumChargeRow } from '../../../components/MinimumChargeRow';
 import { useParams } from 'react-router-dom';
 import { useBeneficiaryReport } from '../../../hooks/useAdmin';
 import {
@@ -50,7 +51,7 @@ export default function BeneficiaryReportPage() {
             <th className="py-2">Tipo</th>
             <th className="py-2">Cant.</th>
             <th className="py-2">Pagas</th>
-            <th className="py-2">Valor actual</th>
+            <th className="py-2">Valor c/u (impagas)</th>
             <th className="py-2">Subtotal</th>
           </tr>
         </thead>
@@ -66,6 +67,7 @@ export default function BeneficiaryReportPage() {
               <td className="py-2 font-medium">{formatCurrency(card.subtotal)}</td>
             </tr>
           ))}
+          <MinimumChargeRow charge={report.minimumCharge} cellClass="py-2" />
         </tbody>
       </table>
 

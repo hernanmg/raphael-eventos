@@ -3,6 +3,7 @@ import multer from 'multer';
 import {
   CostCategoryInputSchema,
   ExpenseInputSchema,
+  StockAssignSchema,
   TenantCostConfigInputSchema,
 } from '@raphael-eventos/shared';
 import { requireRole } from '../../middleware/requireRole';
@@ -12,6 +13,7 @@ import {
   InvalidExpenseError,
   NotFoundError,
   RECEIPT_MAX_BYTES,
+  assignStock,
   computeEventCosting,
   createCostCategory,
   createExpense,
@@ -21,6 +23,7 @@ import {
   getExpenseReceipt,
   listCostCategories,
   listExpenses,
+  listStock,
   updateCostCategory,
   updateCostConfig,
   updateExpense,
@@ -183,6 +186,32 @@ costingRouter.delete('/expenses/:id', async (req, res, next) => {
   try {
     await deleteExpense(req.tenantId, req.params.id!);
     res.status(204).end();
+  } catch (err) {
+    if (handleError(err, res)) return;
+    next(err);
+  }
+});
+
+// Compras para stock y su uso en eventos (feedback 2026-10-23).
+costingRouter.get('/stock', async (req, res, next) => {
+  try {
+    res.json({ stock: await listStock(req.tenantId) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+costingRouter.post('/stock/:id/uses', async (req, res, next) => {
+  try {
+    const input = parseBody(StockAssignSchema, req.body, res);
+    if (!input) return;
+    const expense = await assignStock(
+      req.tenantId,
+      req.params.id!,
+      input,
+      req.currentUser?.id ?? null,
+    );
+    res.status(201).json({ expense });
   } catch (err) {
     if (handleError(err, res)) return;
     next(err);

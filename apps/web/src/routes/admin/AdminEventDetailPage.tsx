@@ -11,6 +11,10 @@ import {
 } from '../../lib/format';
 import { EventEditSection } from './events/EventEditSection';
 import { CardAdjustForm } from './events/CardAdjustForm';
+import { CardHistoryPanel } from './events/CardHistoryPanel';
+import { CancelEventSection } from './events/CancelEventSection';
+import { AddCardTypeSection } from './events/AddCardTypeSection';
+import { ipcUpdateNote } from '../../lib/ipc';
 import { EventHistorySection } from './events/EventHistorySection';
 import { EventCostingSection } from './costing/EventCostingSection';
 import { EventStaffSection } from './staff/EventStaffSection';
@@ -24,6 +28,13 @@ export default function AdminEventDetailPage() {
   const { data, isLoading, isError } = useAdminEventDetail(eventId);
   const { data: session } = useSession();
   const [adjustingCardId, setAdjustingCardId] = useState<string | null>(null);
+  const [historyCardId, setHistoryCardId] = useState<string | null>(null);
+  const ipcNote = data
+    ? ipcUpdateNote(
+        data.event.latestIpcPeriod,
+        data.event.beneficiaries.flatMap((b) => b.cards.map((c) => c.basePeriod)),
+      )
+    : null;
 
   return (
     <main className="mx-auto max-w-3xl px-4 pb-16 pt-6 sm:px-6 md:pt-10">
@@ -52,6 +63,23 @@ export default function AdminEventDetailPage() {
             )}
           </div>
           <p className="mt-1 text-sm text-muted">{formatDate(data.event.eventDate)}</p>
+
+          {data.event.status === 'CANCELADO' && (
+            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+              <p className="font-semibold">
+                Evento cancelado
+                {data.event.cancelledAt && ` el ${formatDate(data.event.cancelledAt)}`}
+              </p>
+              {data.event.cancellationReason && (
+                <p className="mt-1">Motivo: {data.event.cancellationReason}</p>
+              )}
+              <p className="mt-1">
+                Cobrado {formatCurrency(data.event.totals.totalPaid)} · Devuelto{' '}
+                {formatCurrency(data.event.refundAmount ?? 0)} · Quedó para el salón{' '}
+                {formatCurrency(data.event.totals.totalPaid - (data.event.refundAmount ?? 0))}
+              </p>
+            </div>
+          )}
 
           <div className="mt-4 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
             <p>
@@ -83,7 +111,10 @@ export default function AdminEventDetailPage() {
             )}
           </div>
 
-          <EventEditSection event={data.event} />
+          <div className="flex flex-wrap items-start gap-3">
+            <EventEditSection event={data.event} />
+            <CancelEventSection event={data.event} />
+          </div>
 
           <div className="mt-6 grid grid-cols-1 gap-4 rounded-2xl border border-line bg-paper p-5 sm:grid-cols-3">
             <Stat
@@ -98,11 +129,23 @@ export default function AdminEventDetailPage() {
             />
           </div>
 
-          <h2 className="mb-3 mt-8 font-serif text-xl font-semibold">
+          <h2 className="mt-8 font-serif text-xl font-semibold">
             {data.event.beneficiaries.length > 1
               ? `Alumnos (${data.event.beneficiaries.length})`
               : 'Tarjetas'}
           </h2>
+          {ipcNote && (
+            <div className="mb-3 mt-1 text-xs text-muted">
+              <p>
+                {ipcNote.current} {ipcNote.next}
+              </p>
+              {ipcNote.notYet && <p className="mt-0.5">{ipcNote.notYet}</p>}
+              <p className="mt-0.5">
+                Las tarjetas pagas quedan fijas al valor del día del pago: tocá “Pagas” para ver el
+                detalle.
+              </p>
+            </div>
+          )}
 
           <div className="flex flex-col gap-4">
             {data.event.beneficiaries.map((beneficiary) => (
@@ -132,7 +175,7 @@ export default function AdminEventDetailPage() {
                         <th className="py-1 pr-2">Tipo</th>
                         <th className="py-1 pr-2">Cant.</th>
                         <th className="py-1 pr-2">Pagas</th>
-                        <th className="py-1 pr-2">Valor actual</th>
+                        <th className="py-1 pr-2">Valor impagas</th>
                         <th className="py-1 pr-2">Subtotal</th>
                         <th className="py-1" />
                       </tr>
@@ -143,15 +186,20 @@ export default function AdminEventDetailPage() {
                           <td className="py-1.5 pr-2">{CARD_TYPE_LABELS[card.cardType]}</td>
                           <td className="py-1.5 pr-2">{card.quantity}</td>
                           <td className="py-1.5 pr-2">
-                            <span
-                              className={
-                                card.quantityPaid >= card.quantity
+                            <button
+                              type="button"
+                              title="Ver qué pagos las cubren y cómo cambió el valor"
+                              onClick={() =>
+                                setHistoryCardId(historyCardId === card.id ? null : card.id)
+                              }
+                              className={`underline decoration-dotted underline-offset-2 hover:text-ink ${
+                                card.quantity > 0 && card.quantityPaid >= card.quantity
                                   ? 'text-emerald-700'
                                   : 'text-muted'
-                              }
+                              }`}
                             >
                               {card.quantityPaid} / {card.quantity}
-                            </span>
+                            </button>
                           </td>
                           <td className="py-1.5 pr-2">{formatCurrency(card.unitValue)}</td>
                           <td className="py-1.5 pr-2 font-medium">
@@ -170,9 +218,35 @@ export default function AdminEventDetailPage() {
                           </td>
                         </tr>
                       ))}
+                      {beneficiary.minimumCharge && beneficiary.minimumCharge.missing > 0 && (
+                        <tr className="border-t border-line text-amber-900">
+                          <td className="py-1.5 pr-2" colSpan={3}>
+                            Faltan {beneficiary.minimumCharge.missing} para el mínimo de{' '}
+                            {beneficiary.minimumCharge.minGuests}
+                            <span className="block text-xs text-muted">
+                              {beneficiary.minimumCharge.guestCount} cargados (sin contar brindis) ·
+                              a valor Adulto
+                            </span>
+                          </td>
+                          <td className="py-1.5 pr-2">
+                            {formatCurrency(beneficiary.minimumCharge.unitValue)}
+                          </td>
+                          <td className="py-1.5 pr-2 font-medium">
+                            {formatCurrency(beneficiary.minimumCharge.subtotal)}
+                          </td>
+                          <td />
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 )}
+                {beneficiary.cards
+                  .filter((card) => card.id === historyCardId)
+                  .map((card) => (
+                    <div key={card.id} className="mt-2">
+                      <CardHistoryPanel cardId={card.id} onClose={() => setHistoryCardId(null)} />
+                    </div>
+                  ))}
                 {beneficiary.cards
                   .filter((card) => card.id === adjustingCardId)
                   .map((card) => (
@@ -204,6 +278,7 @@ export default function AdminEventDetailPage() {
               </div>
             ))}
           </div>
+          <AddCardTypeSection event={data.event} />
 
           <AdminGuestsSection
             eventId={data.event.id}

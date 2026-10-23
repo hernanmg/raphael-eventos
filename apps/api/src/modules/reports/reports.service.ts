@@ -1,7 +1,13 @@
 import type { CardType, EventType } from '@prisma/client';
 import type { CardCount, MonthReport, YearReport } from '@raphael-eventos/shared';
 import { withTenant } from '../../db/withTenant';
-import { computeAggregateFinancials, serializeCard, type IpcRow } from '../../lib/financials';
+import {
+  chargeableMinimum,
+  computeAggregateFinancials,
+  paidByType,
+  serializeCard,
+  type IpcRow,
+} from '../../lib/financials';
 import { MONEY_FMT, type ExportSheet } from '../../lib/exporter';
 
 /**
@@ -53,7 +59,7 @@ export async function getYearReport(
     const from = new Date(Date.UTC(year - 1, 0, 1));
     const to = new Date(Date.UTC(year + 1, 0, 1));
 
-    const [ipcRows, events, leads, payments] = await Promise.all([
+    const [ipcRows, events, leads, payments, refunds] = await Promise.all([
       tx.ipcIndexValue.findMany({ where: { tenantId }, orderBy: { period: 'asc' } }),
       tx.event.findMany({
         where: { tenantId, eventDate: { gte: from, lt: to } },
@@ -63,6 +69,7 @@ export async function getYearReport(
           type: true,
           status: true,
           eventDate: true,
+          minGuests: true,
           beneficiaries: {
             include: { cards: true, payments: { include: { allocations: true } } },
           },
@@ -80,6 +87,12 @@ export async function getYearReport(
       tx.payment.findMany({
         where: { tenantId, paymentDate: { gte: from, lt: to } },
         select: { amount: true, paymentDate: true, beneficiary: { select: { eventId: true } } },
+      }),
+      // Devoluciones de eventos cancelados (feedback 2026-10-23): restan de la
+      // cobranza del mes de la baja.
+      tx.event.findMany({
+        where: { tenantId, refundAmount: { gt: 0 }, cancelledAt: { gte: from, lt: to } },
+        select: { id: true, refundAmount: true, cancelledAt: true },
       }),
     ]);
 
@@ -141,7 +154,11 @@ export async function getYearReport(
       }
       b.events += 1;
       b.byType[event.type] += 1;
-      const { totalValue, totalPaid } = computeAggregateFinancials(event.beneficiaries, ipcRows);
+      const { totalValue, totalPaid } = computeAggregateFinancials(
+        event.beneficiaries,
+        ipcRows,
+        chargeableMinimum(event),
+      );
       b.committed += totalValue;
       b.collected += totalPaid;
       if (inYear(event.eventDate)) {
@@ -161,6 +178,10 @@ export async function getYearReport(
     for (const payment of selectedPayments) {
       bucket(monthKey(payment.paymentDate)).cashIn += Number(payment.amount);
       if (inYear(payment.paymentDate)) cashInEvents.add(payment.beneficiary.eventId);
+    }
+    for (const refund of refunds) {
+      if (filter && !filter.has(refund.id)) continue;
+      bucket(monthKey(refund.cancelledAt!)).cashIn -= Number(refund.refundAmount);
     }
 
     const latestIpc = ipcRows.length ? ipcRows[ipcRows.length - 1]!.period : null;
@@ -310,13 +331,15 @@ export async function eventsExportSheet(tenantId: string) {
       tx.ipcIndexValue.findMany({ where: { tenantId }, orderBy: { period: 'asc' } }),
       tx.event.findMany({
         where: { tenantId },
-        include: { beneficiaries: { include: { cards: true, payments: true } } },
+        include: {
+          beneficiaries: { include: { cards: true, payments: { include: { allocations: true } } } },
+        },
         orderBy: { eventDate: 'asc' },
       }),
     ]);
     const rows = events.map((e) => ({
       e,
-      f: computeAggregateFinancials(e.beneficiaries, ipcRows),
+      f: computeAggregateFinancials(e.beneficiaries, ipcRows, chargeableMinimum(e)),
     }));
     const sheet: ExportSheet<(typeof rows)[number]> = {
       name: 'Eventos',
@@ -337,6 +360,13 @@ export async function eventsExportSheet(tenantId: string) {
           width: 20,
         },
         { header: 'Cobrado', value: (r) => r.f.totalPaid, numFmt: MONEY_FMT, width: 16 },
+        {
+          header: 'Devolución (baja)',
+          value: (r) => (r.e.refundAmount === null ? null : Number(r.e.refundAmount)),
+          numFmt: MONEY_FMT,
+          width: 18,
+        },
+        { header: 'Motivo de la baja', value: (r) => r.e.cancellationReason, width: 30 },
         { header: 'Saldo', value: (r) => r.f.saldo, numFmt: MONEY_FMT, width: 16 },
         { header: '% abonado', value: (r) => r.f.percentPaid },
       ],
@@ -363,10 +393,7 @@ export async function cardsExportSheet(tenantId: string) {
     ]);
     const rows = cards
       .map((card) => {
-        const paid = card.beneficiary.payments
-          .flatMap((p) => p.allocations)
-          .filter((a) => a.cardType === card.cardType)
-          .reduce((s, a) => s + a.quantity, 0);
+        const paid = paidByType(card.beneficiary.payments).get(card.cardType);
         return { card, summary: serializeCard(card, ipcRows, paid) };
       })
       .sort(

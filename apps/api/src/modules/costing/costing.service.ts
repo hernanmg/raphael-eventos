@@ -9,6 +9,8 @@ import type {
   ExpenseList,
   ExpenseSummary,
   FixedCostProration,
+  StockAssignInput,
+  StockPurchase,
   TenantCostConfigInput,
   TenantCostConfigSummary,
 } from '@raphael-eventos/shared';
@@ -279,6 +281,8 @@ function serializeExpense(row: ExpenseRow, warnings: Set<string>): ExpenseSummar
     autoSource: row.autoSource,
     manuallyEdited: row.manuallyEdited,
     receiptName: row.receiptKey ? (row.receiptName ?? 'ticket') : null,
+    isStock: !row.eventId && !row.period,
+    stockSourceId: row.stockSourceId,
     items: row.items.map((item) => {
       const quantity = Number(item.quantity);
       const unitCost = Number(item.unitCost);
@@ -437,8 +441,9 @@ function expenseData(input: ExpenseInput) {
       ? round2(input.items.reduce((s, i) => s + round2(i.quantity * i.unitCost), 0))
       : input.amount!;
   return {
-    eventId: input.eventId ?? null,
-    period: input.period ? parsePeriod(input.period) : null,
+    // Compra para stock = sin evento ni mes: no entra en ningún costeo.
+    eventId: input.stock ? null : (input.eventId ?? null),
+    period: !input.stock && input.period ? parsePeriod(input.period) : null,
     date: new Date(input.date),
     categoryId: input.categoryId,
     providerId: input.providerId ?? null,
@@ -521,14 +526,35 @@ export async function updateExpense(
   let oldKey: string | null = null;
   try {
     const result = await withTenant(tenantId, async (tx) => {
-      const before = await tx.expense.findUnique({ where: { id } });
+      const before = await tx.expense.findUnique({
+        where: { id },
+        include: { stockUses: { select: { amount: true } } },
+      });
       if (!before || before.tenantId !== tenantId) throw new NotFoundError();
       if (before.autoSource === 'PAYROLL') {
         throw new InvalidExpenseError(
           'Este gasto sale de una liquidación: se corrige re-liquidando el mes del empleado',
         );
       }
+      if (before.stockSourceId) {
+        throw new InvalidExpenseError(
+          'Este gasto sale del stock: borralo (el monto vuelve al stock) y asignalo de nuevo',
+        );
+      }
       await assertReferences(tx, tenantId, input);
+      const used = round2(before.stockUses.reduce((sum, u) => sum + Number(u.amount), 0));
+      if (before.stockUses.length > 0) {
+        if (!input.stock) {
+          throw new InvalidExpenseError(
+            'Esta compra ya tiene partes usadas en eventos: tiene que seguir siendo de stock',
+          );
+        }
+        if (expenseData(input).amount < used) {
+          throw new InvalidExpenseError(
+            `Ya se usaron ${money(used)} de esta compra en eventos: el monto no puede ser menor`,
+          );
+        }
+      }
       const replaceReceipt = Boolean(stored) || input.removeReceipt;
       if (replaceReceipt) oldKey = before.receiptKey;
       await tx.expenseItem.deleteMany({ where: { expenseId: id } });
@@ -572,11 +598,19 @@ export async function updateExpense(
 
 export async function deleteExpense(tenantId: string, id: string) {
   const key = await withTenant(tenantId, async (tx) => {
-    const row = await tx.expense.findUnique({ where: { id }, include: { category: true } });
+    const row = await tx.expense.findUnique({
+      where: { id },
+      include: { category: true, _count: { select: { stockUses: true } } },
+    });
     if (!row || row.tenantId !== tenantId) throw new NotFoundError();
     if (row.autoSource === 'PAYROLL') {
       throw new InvalidExpenseError(
         'Este gasto sale de una liquidación: se corrige re-liquidando el mes del empleado',
+      );
+    }
+    if (row._count.stockUses > 0) {
+      throw new InvalidExpenseError(
+        'Esta compra ya tiene partes usadas en eventos: borrá primero esos gastos de los eventos',
       );
     }
     await tx.expense.delete({ where: { id } });
@@ -591,6 +625,107 @@ export async function deleteExpense(tenantId: string, id: string) {
     return row.receiptKey;
   });
   if (key) await receiptStorage.delete(key).catch(() => undefined);
+}
+
+// -- Stock ----------------------------------------------------------------------
+
+/**
+ * Compras para stock (feedback 2026-10-23: compran en oferta para tener, sin
+ * un evento ni un mes definido). No cuentan en ningún costeo; lo que se usa
+ * se asigna a un evento con assignStock. `remaining` = lo que queda por
+ * asignar, en $.
+ */
+export async function listStock(tenantId: string): Promise<StockPurchase[]> {
+  return withTenant(tenantId, async (tx) => {
+    const rows = await tx.expense.findMany({
+      where: { tenantId, eventId: null, period: null },
+      include: {
+        ...EXPENSE_INCLUDE,
+        stockUses: {
+          select: {
+            id: true,
+            eventId: true,
+            amount: true,
+            date: true,
+            event: { select: { name: true } },
+          },
+          orderBy: { date: 'asc' },
+        },
+      },
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+    });
+    const expenses = await serializeExpenses(tx, tenantId, rows);
+    return rows.map((row, i) => {
+      const used = round2(row.stockUses.reduce((sum, u) => sum + Number(u.amount), 0));
+      return {
+        ...expenses[i]!,
+        used,
+        remaining: round2(Number(row.amount) - used),
+        uses: row.stockUses.map((u) => ({
+          id: u.id,
+          eventId: u.eventId!,
+          eventName: u.event?.name ?? '',
+          amount: Number(u.amount),
+          date: u.date.toISOString(),
+        })),
+      };
+    });
+  });
+}
+
+/** Asigna a un evento parte (en $) de una compra para stock: queda como un
+ *  gasto del evento con el rubro y el proveedor de la compra. */
+export async function assignStock(
+  tenantId: string,
+  stockId: string,
+  input: StockAssignInput,
+  createdById: string | null,
+): Promise<ExpenseSummary> {
+  return withTenant(tenantId, async (tx) => {
+    const stock = await tx.expense.findUnique({
+      where: { id: stockId },
+      include: { stockUses: { select: { amount: true } }, category: true },
+    });
+    if (!stock || stock.tenantId !== tenantId || stock.eventId || stock.period) {
+      throw new NotFoundError();
+    }
+    const event = await tx.event.findUnique({ where: { id: input.eventId } });
+    if (!event || event.tenantId !== tenantId) throw new InvalidExpenseError('Evento inválido');
+    const used = stock.stockUses.reduce((sum, u) => sum + Number(u.amount), 0);
+    const remaining = round2(Number(stock.amount) - used);
+    if (input.amount > remaining + 0.005) {
+      throw new InvalidExpenseError(`De esta compra quedan ${money(remaining)} sin asignar`);
+    }
+
+    const label = stock.detail ?? stock.category?.name ?? 'compra';
+    const row = await tx.expense.create({
+      data: {
+        tenantId,
+        eventId: event.id,
+        date: input.date ? new Date(input.date) : new Date(),
+        categoryId: stock.categoryId,
+        providerId: stock.providerId,
+        amount: input.amount,
+        detail: `Del stock: ${label}${input.detail ? ` — ${input.detail}` : ''}`.slice(0, 500),
+        stockSourceId: stock.id,
+        createdById,
+      },
+      include: EXPENSE_INCLUDE,
+    });
+    await audit(tx, tenantId, {
+      entityType: 'Expense',
+      entityId: row.id,
+      eventId: event.id,
+      action: 'CREATE',
+      summary: `Uso de stock (${stock.category?.name ?? label}) en "${event.name}" por ${money(row.amount)}`,
+      changes: {
+        compraStock: stock.id,
+        monto: input.amount,
+        quedaSinAsignar: round2(remaining - input.amount),
+      },
+    });
+    return (await serializeExpenses(tx, tenantId, [row]))[0]!;
+  });
 }
 
 export async function getExpenseReceipt(tenantId: string, id: string) {
@@ -654,16 +789,17 @@ export async function computeEventCosting(
     const event = await tx.event.findUnique({ where: { id: eventId } });
     if (!event || event.tenantId !== tenantId) throw new NotFoundError();
 
-    // Default de invitados: suma de las tarjetas cargadas (dato que ya existe).
-    const guestCount =
-      guestCountOverride ??
+    // Default de invitados: suma de las tarjetas cargadas, o el mínimo
+    // contratado si es mayor (al firmar las cantidades arrancan en 0 y suben
+    // con los pagos — feedback 2026-10-23).
+    const cardGuests =
       (
         await tx.eventCard.aggregate({
           where: { tenantId, beneficiary: { eventId } },
           _sum: { quantity: true },
         })
-      )._sum.quantity ??
-      0;
+      )._sum.quantity ?? 0;
+    const guestCount = guestCountOverride ?? Math.max(cardGuests, event.minGuests ?? 0);
 
     const month = monthStart(event.eventDate ?? event.createdAt);
     const nextMonth = new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 1));

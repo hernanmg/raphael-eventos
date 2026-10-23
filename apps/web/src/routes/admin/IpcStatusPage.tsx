@@ -1,9 +1,19 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Link } from 'react-router-dom';
-import { CreateIpcEntrySchema, type CreateIpcEntryInput } from '@raphael-eventos/shared';
-import { useAddIpcEntry, useIpcHistory } from '../../hooks/useAdmin';
+import {
+  CreateIpcEntrySchema,
+  UpdateIpcEntrySchema,
+  type CreateIpcEntryInput,
+  type IpcHistoryEntry,
+} from '@raphael-eventos/shared';
+import {
+  useAddIpcEntry,
+  useDeleteIpcEntry,
+  useIpcHistory,
+  useUpdateIpcEntry,
+} from '../../hooks/useAdmin';
 import { ApiError } from '../../lib/api';
 import { FormField } from '../../components/FormField';
 import { formatTimestamp } from '../../lib/format';
@@ -38,6 +48,7 @@ export default function IpcStatusPage() {
     });
   });
 
+  const [editingId, setEditingId] = useState<string | null>(null);
   const history = useMemo(() => data?.history ?? [], [data]);
   const accumulated = useMemo(() => accumulatedByEntry(history), [history]);
   const latest = history[0];
@@ -107,8 +118,8 @@ export default function IpcStatusPage() {
         <div>
           <h2 className="font-serif text-lg font-semibold">Cargar un mes a mano</h2>
           <p className="mt-1 text-xs text-muted">
-            Solo si el dato no llegó solo. Usá el % que publica el INDEC para ese mes (ej. 1,66). Si
-            el mes ya estaba cargado, se reemplaza.
+            Solo si el dato no llegó solo. Usá el % que publica el INDEC para ese mes (ej. 1,66).
+            Para corregir un mes ya cargado a mano, usá “Corregir” en el historial.
           </p>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -124,6 +135,7 @@ export default function IpcStatusPage() {
             label="% de variación del mes"
             type="number"
             step="0.01"
+            min={-50}
             inputMode="decimal"
             error={errors.variationPct?.message}
             {...register('variationPct')}
@@ -159,11 +171,21 @@ export default function IpcStatusPage() {
                   <th className="px-4 py-2.5 text-right">Variación</th>
                   <th className="px-4 py-2.5 text-right">Acum. del año</th>
                   <th className="px-4 py-2.5">Origen</th>
+                  <th className="px-4 py-2.5" />
                 </tr>
               </thead>
               <tbody>
                 {history.map((entry) => {
                   const ytd = accumulated.get(entry.id)?.yearToDate;
+                  if (editingId === entry.id) {
+                    return (
+                      <tr key={entry.id} className="border-t border-line bg-cream/60">
+                        <td colSpan={5} className="px-4 py-3">
+                          <IpcEntryEditor entry={entry} onDone={() => setEditingId(null)} />
+                        </td>
+                      </tr>
+                    );
+                  }
                   return (
                     <tr key={entry.id} className="border-t border-line">
                       <td className="whitespace-nowrap px-4 py-2.5 first-letter:uppercase">
@@ -177,6 +199,17 @@ export default function IpcStatusPage() {
                       </td>
                       <td className="px-4 py-2.5 text-muted">
                         {entry.triggeredByName ? `A mano · ${entry.triggeredByName}` : 'Automático'}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        {entry.triggeredByName && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingId(editingId === entry.id ? null : entry.id)}
+                            className="text-xs text-muted underline hover:text-ink"
+                          >
+                            Corregir
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -224,5 +257,95 @@ export default function IpcStatusPage() {
         </>
       )}
     </main>
+  );
+}
+
+/**
+ * Corrección o baja de un mes cargado a mano (feedback 2026-10-23: "si me
+ * equivoco queda fijo"). El server recalcula el índice de los meses
+ * siguientes; las tarjetas ya pagas no cambian (quedan congeladas).
+ */
+function IpcEntryEditor({ entry, onDone }: { entry: IpcHistoryEntry; onDone: () => void }) {
+  const update = useUpdateIpcEntry();
+  const remove = useDeleteIpcEntry();
+  const [value, setValue] = useState(String(entry.sourceLatestValue));
+  const [error, setError] = useState<string>();
+
+  const save = () => {
+    const parsed = UpdateIpcEntrySchema.safeParse({ variationPct: value.replace(',', '.') });
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? 'Revisá el valor');
+      return;
+    }
+    update.mutate(
+      { id: entry.id, variationPct: parsed.data.variationPct },
+      {
+        onSuccess: onDone,
+        onError: (err) => setError(err instanceof ApiError ? err.message : 'No pudimos guardar'),
+      },
+    );
+  };
+
+  const destroy = () => {
+    if (
+      !window.confirm(
+        `¿Borrar el IPC de ${formatPeriod(entry.period)}? Si el dato oficial ya está publicado, se vuelve a traer solo.`,
+      )
+    ) {
+      return;
+    }
+    remove.mutate(entry.id, {
+      onSuccess: onDone,
+      onError: (err) => setError(err instanceof ApiError ? err.message : 'No pudimos borrar'),
+    });
+  };
+
+  const busy = update.isPending || remove.isPending;
+  return (
+    <div className="flex flex-col gap-2 text-sm">
+      <p className="font-medium first-letter:uppercase">{formatPeriod(entry.period)}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-muted">% de variación del mes</span>
+          <input
+            type="number"
+            step="0.01"
+            min={-50}
+            inputMode="decimal"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="w-32 rounded-lg border border-line px-3 py-2 outline-none focus:border-ink"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy}
+          className="rounded-full bg-ink px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
+        >
+          {update.isPending ? 'Guardando…' : 'Guardar'}
+        </button>
+        <button type="button" onClick={onDone} className="text-xs text-muted hover:text-ink">
+          Cancelar
+        </button>
+        <button
+          type="button"
+          onClick={destroy}
+          disabled={busy}
+          className="ml-auto text-xs text-red-600 underline hover:text-red-700 disabled:opacity-60"
+        >
+          Borrar mes
+        </button>
+      </div>
+      <p className="text-xs text-muted">
+        Al corregirlo se recalculan los meses siguientes y el valor de las tarjetas que todavía no
+        están pagas. Las tarjetas ya pagas no cambian.
+      </p>
+      {error && (
+        <p role="alert" className="text-xs text-red-600">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

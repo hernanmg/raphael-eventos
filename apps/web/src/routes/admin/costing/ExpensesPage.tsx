@@ -4,6 +4,7 @@ import { useExpenses } from '../../../hooks/useCosting';
 import { COST_KIND_LABELS, formatCurrency } from '../../../lib/format';
 import { ExpenseForm } from './ExpenseForm';
 import { ExpenseRow } from './ExpenseRow';
+import { StockSection } from './StockSection';
 import { AdminPageNav } from '../../../components/admin/AdminPageNav';
 
 function shiftMonth(month: string, delta: number): string {
@@ -50,7 +51,8 @@ export default function ExpensesPage() {
           <h1 className="font-serif text-3xl font-semibold">Gastos</h1>
           <p className="mt-1 max-w-xl text-sm text-muted">
             Cada gasto con su rubro, proveedor y ticket. Los de un evento suman a su costeo; los del
-            salón se prorratean entre los eventos del mes.{' '}
+            salón se prorratean entre los eventos del mes; las compras para stock esperan a que las
+            asignes a un evento.{' '}
             <Link to="/admin/costeo/config" className="underline">
               Rubros y porcentajes
             </Link>
@@ -137,6 +139,8 @@ export default function ExpensesPage() {
           )}
         </>
       )}
+
+      <StockSection />
     </main>
   );
 }

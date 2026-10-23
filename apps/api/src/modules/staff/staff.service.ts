@@ -11,7 +11,7 @@ import type {
   PayrollPreview,
 } from '@raphael-eventos/shared';
 import { withTenant } from '../../db/withTenant';
-import { computeAggregateFinancials } from '../../lib/financials';
+import { chargeableMinimum, computeAggregateFinancials } from '../../lib/financials';
 import { generateTemporaryPassword, hashPassword } from '../../lib/password';
 import { audit, diffFields, money, snapshot } from '../../lib/audit';
 
@@ -228,14 +228,15 @@ export async function listEventStaffAssignments(tenantId: string, eventId: strin
 }
 
 async function eventTotalValue(tx: Prisma.TransactionClient, tenantId: string, eventId: string) {
-  const [beneficiaries, ipcRows] = await Promise.all([
+  const [event, beneficiaries, ipcRows] = await Promise.all([
+    tx.event.findUniqueOrThrow({ where: { id: eventId }, select: { type: true, minGuests: true } }),
     tx.eventBeneficiary.findMany({
       where: { tenantId, eventId },
-      include: { cards: true, payments: true },
+      include: { cards: true, payments: { include: { allocations: true } } },
     }),
     tx.ipcIndexValue.findMany({ where: { tenantId }, orderBy: { period: 'asc' } }),
   ]);
-  return computeAggregateFinancials(beneficiaries, ipcRows).totalValue;
+  return computeAggregateFinancials(beneficiaries, ipcRows, chargeableMinimum(event)).totalValue;
 }
 
 /** Monto de un componente variable (monto fijo, o % del valor del evento). */

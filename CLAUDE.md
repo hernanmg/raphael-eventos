@@ -1620,3 +1620,66 @@ Verificado con Playwright (desktop 1440 y mobile 390): dashboard con cards y
 datos reales del seed, pestañas/migas en Gastos y Liquidación, hoja "Más"
 navegando a Gastos, detalle de evento sin scroll horizontal, sin errores de
 consola.
+
+## Feedback de Cami y Fede (2026-10-23) — implementado
+
+Reunión con el evento real ya cargado. Migraciones `20261023120000_feedback_cami_fede` y
+`20261023130000_tarjetas_base` (sin tablas nuevas; data migration con `NO FORCE`/`FORCE` RLS temporal porque
+FORCE aplica también al dueño). **Pendiente: aplicarla en producción** antes de
+deployar este código. Decisiones del usuario (todas cerradas):
+
+- **Tarjetas pagas CONGELADAS.** `PaymentCardAllocation.unitValue` guarda el
+  valor por tarjeta del día del pago; solo las impagas indexan por IPC.
+  `subtotal = paidValue + impagas × unitValue` (`lib/financials.ts`). Las
+  asignaciones existentes se congelaron al valor vigente al migrar (ningún saldo
+  cambió). Un pago SIN asignación sigue bajando solo el saldo en $. **Toda query
+  que alimente `computeBeneficiaryFinancials` tiene que incluir
+  `payments: { include: { allocations: true } }`** — sin eso las pagas se
+  valúan como impagas (se corrigieron 6 lugares que traían `payments: true`).
+- **Cantidad no obligatoria + mínimo en todos los tipos.** `CreateEventSchema`
+  exige valor en al menos una tarjeta, no cantidad; se crean las tarjetas con
+  valor aunque la cantidad sea 0. `minGuests` aplica a todos (form default 100).
+  En 15/boda/empresarial lo que falte se cobra a valor Adulto
+  (`MinimumCharge`, `chargeableMinimum(event)` — cuentan adulto/adolescente/
+  menor, no brindis); en egreso es informativo. Asignar en un pago más unidades
+  de las cargadas **sube la cantidad sola** (queda `EventCardAdjustment` sin
+  re-basar). Asignar a una tarjeta sin valor → 400. Costeo: invitados por
+  defecto = máx(suma de tarjetas, mínimo).
+- **Adulto/adolescente/menor siempre existen** (`BASE_CARD_TYPES` en shared):
+  el alta los crea aunque vengan en 0 (brindis solo con algo cargado) y la
+  migración `20261023130000_tarjetas_base` (también pendiente en producción)
+  se los agregó en 0 a los eventos ya creados. Un tipo que falte se suma con
+  `POST /admin/events/:id/cards` ("+ Agregar tipo de tarjeta",
+  `AddCardTypeSection`; en egreso a cada alumno que no lo tenga, período base
+  = mes actual, auditado). Una tarjeta en $0 se completa con "Ajustar".
+- **Historial de tarjeta**: `GET /admin/cards/:id/history` (asignaciones con
+  valor congelado + evolución alta/IPC/ajuste reconstruida de
+  `IpcIndexValue`+`EventCardAdjustment`) → `CardHistoryPanel`, se abre con click
+  en "Pagas X/Y". El detalle muestra con qué IPC están las tarjetas y cuándo es
+  la próxima actualización (`lib/ipc.ts#ipcUpdateNote`). Convención (sin
+  cambios): una tarjeta del mes M empieza a indexar con el IPC de M+1 — por eso
+  "cargué el IPC y no cambió nada" en un evento recién creado es correcto.
+- **IPC manual editable**: `PUT/DELETE /admin/ipc/:id`, solo filas con
+  `triggeredById` (lo del INDEC no se toca). `rechainIpcAfter` re-encadena los
+  meses posteriores (antes, re-cargar un mes que no era el último dejaba los
+  siguientes encadenados sobre el valor viejo — bug real); el primer mes es el
+  ancla. La auditoría lleva `changes.periodo` (la limpieza de tests la usa).
+- **Compras para stock**: `Expense` sin evento ni mes (`stock: true` en el
+  input). No entra en ningún costeo; `POST /admin/stock/:id/uses` crea un gasto
+  hijo del evento (`stockSourceId`, mismo rubro/proveedor). El hijo no se edita
+  (se borra → vuelve al stock); la compra con usos no se borra ni baja de lo
+  usado. UI: radio "Compra para stock" + `StockSection` en `/admin/gastos`.
+- **Cancelar evento**: `POST /admin/events/:id/cancel` (motivo + devolución
+  opcional ≤ cobrado) → `Event.cancelledAt/cancellationReason/refundAmount`.
+  Botón visible "Cancelar evento"; el select de estado ya no ofrece Cancelado
+  (solo reactivar, que limpia la baja). Reportes: la devolución resta de la
+  cobranza del mes de la baja; columnas nuevas en la exportación de eventos.
+- **UI**: grilla de ítems de gasto con `minmax(0,…)` + inputs `w-full min-w-0`
+  (se salían de la card). **Campos numéricos**: guard global
+  `lib/numericInput.ts` (instalado en `main.tsx`, filtra `beforeinput` en todo
+  input `type="number"` o `inputMode` decimal/numeric; "-" solo con `min`
+  negativo). Un campo numérico nuevo solo necesita esos atributos.
+
+Verificado: 37 checks por API contra la base de dev y Playwright (form de gasto
+sin desbordes, tipeo "12abc,50" → "12,50", detalle cancelado con historial de
+Pagas). Datos de prueba borrados.
