@@ -604,8 +604,13 @@ export async function getDashboard(tenantId: string): Promise<DashboardSummary> 
   return withTenant(tenantId, async (tx) => {
     const events = await tx.event.findMany({ where: { tenantId }, orderBy: { eventDate: 'asc' } });
 
-    const totals = { total: events.length, QUINCE: 0, EGRESO: 0, BODA: 0, EMPRESARIAL: 0 };
+    const totals = { total: 0, QUINCE: 0, EGRESO: 0, BODA: 0, EMPRESARIAL: 0, cancelled: 0 };
     for (const event of events) {
+      if (event.status === 'CANCELADO') {
+        totals.cancelled += 1;
+        continue;
+      }
+      totals.total += 1;
       totals[event.type] += 1;
     }
 

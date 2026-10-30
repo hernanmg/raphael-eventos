@@ -43,8 +43,10 @@ function toNumber(value: string): number {
   return Number(value.replace(',', '.'));
 }
 
+// Fecha local (en-CA = YYYY-MM-DD): con toISOString, después de las 21 en
+// Argentina ya daba el día siguiente.
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toLocaleDateString('en-CA');
 }
 
 /**

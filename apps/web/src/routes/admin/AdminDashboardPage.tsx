@@ -11,7 +11,8 @@ import { ADMIN_NAV, visibleItems, type AdminNavItem } from '../../components/adm
 import { EVENT_TYPE_LABELS, formatCurrency, formatDate } from '../../lib/format';
 import { formatPeriodMonth, formatVariation } from '../../lib/ipc';
 
-type Filter = EventType | 'ALL' | null;
+// CANCELLED: los cancelados solo aparecen con su card, nunca en el resto.
+type Filter = EventType | 'ALL' | 'CANCELLED' | null;
 
 // Desktop: dashboard como "hub de módulos" (cards agrupadas por área).
 // Mobile: tablero tipo bento; la navegación vive en la barra inferior
@@ -42,7 +43,12 @@ export default function AdminDashboardPage() {
         .sort((a, b) => new Date(a.eventDate!).getTime() - new Date(b.eventDate!).getTime());
     }
 
-    const filtered = filter === 'ALL' ? events : events.filter((event) => event.type === filter);
+    const filtered =
+      filter === 'CANCELLED'
+        ? events.filter((event) => event.status === 'CANCELADO')
+        : events.filter(
+            (event) => event.status !== 'CANCELADO' && (filter === 'ALL' || event.type === filter),
+          );
     return [...filtered].sort((a, b) => {
       if (!a.eventDate) return 1;
       if (!b.eventDate) return -1;
@@ -55,7 +61,9 @@ export default function AdminDashboardPage() {
       ? 'Próximos eventos'
       : filter === 'ALL'
         ? 'Todos los eventos'
-        : `Eventos: ${EVENT_TYPE_LABELS[filter]}`;
+        : filter === 'CANCELLED'
+          ? 'Eventos cancelados'
+          : `Eventos: ${EVENT_TYPE_LABELS[filter]}`;
 
   function toggleFilter(next: Filter) {
     setFilter((current) => (current === next ? null : next));
@@ -73,7 +81,7 @@ export default function AdminDashboardPage() {
     <div
       className={
         isDesktop
-          ? 'grid grid-cols-5 gap-3'
+          ? 'grid grid-cols-6 gap-3'
           : '-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]'
       }
     >
@@ -106,6 +114,12 @@ export default function AdminDashboardPage() {
         value={data.dashboard.totals.EMPRESARIAL}
         active={filter === 'EMPRESARIAL'}
         onClick={() => toggleFilter('EMPRESARIAL')}
+      />
+      <StatCard
+        label="Cancelados"
+        value={data.dashboard.totals.cancelled}
+        active={filter === 'CANCELLED'}
+        onClick={() => toggleFilter('CANCELLED')}
       />
     </div>
   );

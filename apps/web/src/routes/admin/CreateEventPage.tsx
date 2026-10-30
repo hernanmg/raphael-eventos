@@ -93,7 +93,7 @@ export default function CreateEventPage() {
 
   const onSubmit = handleSubmit((values) => {
     mutation.mutate(values, {
-      onSuccess: () => navigate('/admin'),
+      onSuccess: ({ event }) => navigate(`/admin/eventos/${event.id}`),
       onError: (err) => {
         const message = err instanceof ApiError ? err.message : 'No pudimos crear el evento';
         setError('root', { message });

@@ -61,7 +61,10 @@ function StockPurchaseRow({ purchase }: { purchase: StockPurchase }) {
   const [assigning, setAssigning] = useState(false);
   return (
     <li className="py-2">
-      <ExpenseRow expense={purchase} />
+      {/* ExpenseRow ya renderiza su propio <li>: sin este <ul>, li dentro de li. */}
+      <ul>
+        <ExpenseRow expense={purchase} />
+      </ul>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
         <span className="text-muted">
           Usado {formatCurrency(purchase.used)} · Queda{' '}
@@ -98,7 +101,7 @@ function StockAssignForm({ purchase, onDone }: { purchase: StockPurchase; onDone
   const assign = useAssignStock();
   const [eventId, setEventId] = useState('');
   const [amount, setAmount] = useState(String(purchase.remaining));
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => new Date().toLocaleDateString('en-CA'));
   const [detail, setDetail] = useState('');
   const [localError, setLocalError] = useState<string>();
 

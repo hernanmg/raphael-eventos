@@ -6,6 +6,15 @@ import type { Prisma } from '@prisma/client';
 // como por el panel admin (admin.service.ts, que ve todo sin restricción).
 // Vive acá para no duplicar la lógica entre los dos.
 
+// Orden fijo de las tarjetas en toda pantalla (el de la base depende de
+// cuándo se tocó cada fila: tras un pago o ajuste se reordenaban).
+const CARD_TYPE_ORDER = ['ADULTO', 'ADOLESCENTE', 'MENOR', 'BRINDIS'];
+
+function cardTypeRank(cardType: string): number {
+  const rank = CARD_TYPE_ORDER.indexOf(cardType);
+  return rank === -1 ? CARD_TYPE_ORDER.length : rank;
+}
+
 export type IpcRow = { period: Date; indexValue: Prisma.Decimal };
 export type CardRow = {
   id: string;
@@ -159,9 +168,9 @@ export function computeBeneficiaryFinancials(
   minGuests: number | null = null,
 ): BeneficiaryFinancials {
   const paid = paidByType(beneficiary.payments);
-  const cards = beneficiary.cards.map((card) =>
-    serializeCard(card, ipcRows, paid.get(card.cardType)),
-  );
+  const cards = [...beneficiary.cards]
+    .sort((a, b) => cardTypeRank(a.cardType) - cardTypeRank(b.cardType))
+    .map((card) => serializeCard(card, ipcRows, paid.get(card.cardType)));
   const minimumCharge = minimumChargeFor(cards, minGuests);
   const totalValue = round2(
     cards.reduce((sum, card) => sum + card.subtotal, 0) + (minimumCharge?.subtotal ?? 0),

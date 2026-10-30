@@ -34,8 +34,13 @@ export function BeneficiaryPaymentsSection({
     register,
     handleSubmit,
     reset,
-    formState: { isSubmitting },
-  } = useForm<RecordPaymentInput>({ resolver: zodResolver(RecordPaymentSchema) });
+    formState: { isSubmitting, errors },
+  } = useForm<RecordPaymentInput>({
+    resolver: zodResolver(RecordPaymentSchema),
+    // Fecha local de hoy (en-CA = YYYY-MM-DD): sin default, el submit fallaba
+    // la validación sin mostrar nada.
+    defaultValues: { paymentDate: new Date().toLocaleDateString('en-CA') },
+  });
 
   // Toda tarjeta con valor se puede asignar, aunque ya estén todas pagas o la
   // cantidad esté en 0: la cantidad sube sola (feedback 2026-10-23).
@@ -122,6 +127,11 @@ export function BeneficiaryPaymentsSection({
         </p>
       )}
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {(errors.amount || errors.paymentDate || errors.note) && (
+        <p className="mt-2 text-xs text-red-600">
+          {errors.amount?.message ?? errors.paymentDate?.message ?? errors.note?.message}
+        </p>
+      )}
 
       <form onSubmit={onSubmit} className="mt-2 flex flex-col gap-2">
         <div className="flex flex-wrap items-end gap-2">

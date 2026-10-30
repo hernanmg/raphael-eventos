@@ -201,6 +201,8 @@ export interface DashboardSummary {
     EGRESO: number;
     BODA: number;
     EMPRESARIAL: number;
+    /** Los cancelados no cuentan en total ni por tipo: tienen su propia card. */
+    cancelled: number;
   };
   /** Todos los eventos del tenant (no solo los próximos) — el frontend arma
    *  la vista "Próximos eventos" y el filtro por tarjeta a partir de esto. */
